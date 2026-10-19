@@ -20,7 +20,9 @@
     Helvetica: 'Helvetica, Arial, sans-serif',
     TimesRoman: '"Times New Roman", Times, serif',
     Courier: '"Courier New", Courier, monospace',
+    HelveticaBold: 'Helvetica, Arial, sans-serif',
   };
+  const WATERMARK = { text: 'DRAFT', size: 150, opacity: 0.1, angle: 45, font: 'HelveticaBold', color: '#000000' };
 
   // ---------- State ----------
   const sources = [];        // { bytes, pdfjs, lib, pageCache: Map }
@@ -107,6 +109,7 @@
       Helvetica: await doc.embedFont(StandardFonts.Helvetica),
       TimesRoman: await doc.embedFont(StandardFonts.TimesRoman),
       Courier: await doc.embedFont(StandardFonts.Courier),
+      HelveticaBold: await doc.embedFont(StandardFonts.HelveticaBold),
     };
   }
 
@@ -175,6 +178,7 @@
     $('undoBtn').disabled = !undoStack.length;
     $('redoBtn').disabled = !redoStack.length;
     $('saveBtn').disabled = !pages.length;
+    $('watermarkBtn').disabled = !pages.length;
     $('zoomLabel').textContent = Math.round(zoom * 100) + '%';
   }
 
@@ -377,8 +381,9 @@
     ctx.rotate(rad(a.rot || 0));
     switch (a.type) {
       case 'text': {
+        if (a.opacity != null) ctx.globalAlpha = a.opacity;
         ctx.fillStyle = a.color;
-        ctx.font = `${a.size}px ${CSS_FONTS[a.font]}`;
+        ctx.font = `${a.font === 'HelveticaBold' ? 'bold ' : ''}${a.size}px ${CSS_FONTS[a.font]}`;
         ctx.textBaseline = 'alphabetic';
         a.text.split('\n').forEach((line, i) => {
           ctx.save();
@@ -751,6 +756,7 @@
     ta.style.transform = screenRot ? `rotate(${screenRot}deg)` : '';
     ta.style.fontSize = a.size * zoom + 'px';
     ta.style.fontFamily = CSS_FONTS[a.font];
+    ta.style.fontWeight = a.font === 'HelveticaBold' ? 'bold' : 'normal';
     ta.style.color = a.color;
     const fit = () => {
       const lines = ta.value.split('\n');
@@ -850,6 +856,37 @@
   fontInput.addEventListener('change', () => applyProp((a) => { if (a.type === 'text') { a.font = fontInput.value; layoutText(a); } }));
   widthInput.addEventListener('change', () => applyProp((a) => { if ('lineWidth' in a) a.lineWidth = Math.max(0.5, +widthInput.value || 2); }));
 
+  // One click: put a faint diagonal "DRAFT" across the middle of every page.
+  // Clicking again when every page already has one removes them.
+  function toggleWatermark() {
+    if (!pages.length) return;
+    closeTextEditor();
+    const has = (p) => p.annots.some((a) => a.watermark);
+    checkpoint();
+    selection = null;
+    if (pages.every(has)) {
+      pages.forEach((p) => { p.annots = p.annots.filter((a) => !a.watermark); });
+      renderAll();
+      return status('Watermark removed');
+    }
+    for (const page of pages) {
+      if (has(page)) continue;
+      const a = {
+        type: 'text', watermark: true, text: WATERMARK.text, size: WATERMARK.size, font: WATERMARK.font,
+        color: WATERMARK.color, opacity: WATERMARK.opacity, rot: page.rotation + WATERMARK.angle, x: 0, y: 0,
+      };
+      layoutText(a, false);
+      // Center the rotated text box on the page.
+      const v = page.view;
+      const [dx, dy] = rotateVec(a.w / 2, a.h / 2, a.rot);
+      a.x = (v[0] + v[2]) / 2 - dx;
+      a.y = (v[1] + v[3]) / 2 - dy;
+      page.annots.unshift(a); // underneath other edits, so it doesn't get in the way of selecting them
+    }
+    renderAll();
+    status('Watermark added to every page');
+  }
+
   function deleteSelection() {
     if (!selection) return;
     checkpoint();
@@ -910,7 +947,7 @@
           a.text.split('\n').forEach((line, i) => {
             if (!line) return;
             const [x, y] = fromLocal(a, 0, baselineY(a, i));
-            p.drawText(line, { x, y, size: a.size, font, color, rotate });
+            p.drawText(line, { x, y, size: a.size, font, color, rotate, opacity: a.opacity ?? 1 });
           });
         } else if (a.type === 'pen') {
           const pts = a.points.length === 1 ? [a.points[0], [a.points[0][0] + 0.01, a.points[0][1]]] : a.points;
@@ -982,6 +1019,7 @@
   });
   $('imageInput').addEventListener('change', (e) => { addImage(e.target.files[0]); e.target.value = ''; });
   $('newBlankBtn').addEventListener('click', newBlankDocument);
+  $('watermarkBtn').addEventListener('click', toggleWatermark);
   $('saveBtn').addEventListener('click', save);
   $('undoBtn').addEventListener('click', undo);
   $('redoBtn').addEventListener('click', redo);

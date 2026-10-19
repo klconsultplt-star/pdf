@@ -18,6 +18,7 @@
         Merge
         <input type="file" id="mergeInput" accept="application/pdf,.pdf" multiple hidden>
       </label>
+      <button class="btn" id="watermarkBtn" disabled title="Add a faint diagonal DRAFT watermark to every page (click again to remove)">Watermark</button>
       <button class="btn primary" id="saveBtn" disabled title="Download the edited PDF (Ctrl+S)">Download</button>
     </div>
 
@@ -41,6 +42,7 @@
           <option value="Helvetica">Sans</option>
           <option value="TimesRoman">Serif</option>
           <option value="Courier">Mono</option>
+          <option value="HelveticaBold">Sans Bold</option>
         </select>
       </label>
       <label title="Font size">

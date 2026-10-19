@@ -22,6 +22,7 @@ A PDF editor that runs entirely in your web browser. Files never leave your comp
 | Highlight an area | **Highlight** tool, drag over the area |
 | Draw a box | **Box** tool |
 | Hide existing content | **Whiteout** tool covers it with a white box (then add new text on top to "replace" text) |
+| Watermark | **Watermark** puts a faint diagonal "DRAFT" (150 pt, bold, 10% opacity, 45°) across every page in one click. Click again to remove it. Each watermark can also be selected and moved, edited or deleted like other text |
 | Insert an image | **Image** (PNG or JPG), or drag an image onto the window |
 | Move / resize / delete | **Select** tool: drag to move, drag the square handle to resize, Delete key to remove, arrow keys to nudge |
 | Change color, font, size, line width | Toolbar controls. With an item selected, changes apply to it |
