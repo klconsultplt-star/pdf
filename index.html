@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PDF Editor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="group">
+      <span class="brand">PDF Editor</span>
+      <label class="btn primary" title="Open a PDF">
+        Open
+        <input type="file" id="openInput" accept="application/pdf,.pdf" hidden>
+      </label>
+      <label class="btn" title="Append pages from another PDF">
+        Merge
+        <input type="file" id="mergeInput" accept="application/pdf,.pdf" multiple hidden>
+      </label>
+      <button class="btn primary" id="saveBtn" disabled title="Download the edited PDF (Ctrl+S)">Download</button>
+    </div>
+
+    <div class="group tools" id="tools">
+      <button class="tool active" data-tool="select" title="Select, move and delete items (V)">Select</button>
+      <button class="tool" data-tool="text" title="Add text (T)">Text</button>
+      <button class="tool" data-tool="pen" title="Freehand drawing (P)">Draw</button>
+      <button class="tool" data-tool="highlight" title="Highlight an area (H)">Highlight</button>
+      <button class="tool" data-tool="rect" title="Rectangle outline (R)">Box</button>
+      <button class="tool" data-tool="whiteout" title="Cover content with a white box (W)">Whiteout</button>
+      <label class="tool" title="Insert an image (PNG or JPG)">
+        Image
+        <input type="file" id="imageInput" accept="image/png,image/jpeg" hidden>
+      </label>
+    </div>
+
+    <div class="group props">
+      <label title="Color"><input type="color" id="colorInput" value="#d32f2f"></label>
+      <label title="Font">
+        <select id="fontInput">
+          <option value="Helvetica">Sans</option>
+          <option value="TimesRoman">Serif</option>
+          <option value="Courier">Mono</option>
+        </select>
+      </label>
+      <label title="Font size">
+        <input type="number" id="sizeInput" min="4" max="200" value="14"> pt
+      </label>
+      <label title="Line width">
+        <input type="number" id="widthInput" min="0.5" max="40" step="0.5" value="2"> w
+      </label>
+    </div>
+
+    <div class="group">
+      <button class="btn" id="undoBtn" title="Undo (Ctrl+Z)" disabled>Undo</button>
+      <button class="btn" id="redoBtn" title="Redo (Ctrl+Y)" disabled>Redo</button>
+      <button class="btn" id="zoomOut" title="Zoom out">−</button>
+      <span id="zoomLabel">100%</span>
+      <button class="btn" id="zoomIn" title="Zoom in">+</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar" id="sidebar" aria-label="Pages"></aside>
+    <section class="viewer" id="viewer">
+      <div class="empty" id="emptyState">
+        <h1>Edit a PDF in your browser</h1>
+        <p>Open a file or drop it here. Nothing is uploaded: everything happens on your computer.</p>
+        <label class="btn primary big">
+          Choose a PDF
+          <input type="file" id="openInput2" accept="application/pdf,.pdf" hidden>
+        </label>
+        <button class="btn big" id="newBlankBtn">Start with a blank page</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+
+  <script src="vendor/pdf.min.js"></script>
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
