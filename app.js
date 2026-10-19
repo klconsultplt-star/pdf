@@ -180,7 +180,7 @@
     $('redoBtn').disabled = !redoStack.length;
     $('saveBtn').disabled = !pages.length;
     $('watermarkBtn').disabled = !pages.length;
-    $('exportSelect').disabled = !pages.length;
+    updateExportMenu();
     $('zoomLabel').textContent = Math.round(zoom * 100) + '%';
   }
 
@@ -192,7 +192,7 @@
       if (pw == null) task.destroy(); else updatePassword(pw);
     };
     const pdfjs = await task.promise;
-    const src = { bytes, pdfjs, lib: null, pageCache: new Map() };
+    const src = { bytes, pdfjs, lib: null, pageCache: new Map(), textPages: new Set() };
     sources.push(src);
     const index = sources.length - 1;
     const out = [];
@@ -200,6 +200,11 @@
       const p = await getPdfjsPage(src, n);
       out.push({ id: uid(), src: index, srcPage: n, rotation: p.rotate % 360, view: p.view.slice(), annots: [] });
     }
+    // Note which pages contain real text; pages without any are scans (pictures of text).
+    await Promise.all(out.map(async (pg) => {
+      const tc = await (await getPdfjsPage(src, pg.srcPage)).getTextContent();
+      if (tc.items.some((it) => it.str && it.str.trim())) src.textPages.add(pg.srcPage);
+    }));
     return out;
   }
 
@@ -1012,11 +1017,61 @@
     }
   }
 
+  // ---------- Export ----------
+  const TEXT_FORMATS = ['docx', 'xlsx', 'csv'];
+  const IMAGE_FORMATS = ['png', 'jpg'];
+
+  // True when the original PDF content has text. Scanned PDFs (and documents
+  // made only of blank pages) have none, so they can only be exported as images.
+  const hasText = () => pages.some((p) => p.src != null && sources[p.src].textPages.has(p.srcPage));
+
+  function updateExportMenu() {
+    const sel = $('exportSelect');
+    sel.disabled = !pages.length;
+    const text = hasText();
+    for (const opt of sel.options) {
+      if (!opt.value) continue;
+      const allowed = text ? TEXT_FORMATS.includes(opt.value) : IMAGE_FORMATS.includes(opt.value);
+      opt.hidden = opt.disabled = !allowed;
+    }
+    sel.title = text
+      ? 'Export the text to Word, Excel or CSV'
+      : 'This PDF has no text (it looks scanned), so it can be exported as images';
+  }
+
+  async function exportAs(kind) {
+    if (!pages.length) return;
+    const text = hasText();
+    if (TEXT_FORMATS.includes(kind) && !text) return status('This PDF has no text (it looks scanned). Export it as PNG or JPG instead.', 6000);
+    if (IMAGE_FORMATS.includes(kind) && text) return status('This PDF has text. Export it to Word, Excel or CSV.', 6000);
+    return IMAGE_FORMATS.includes(kind) ? exportImages(kind) : exportText(kind);
+  }
+
+  // One image per page, with edits applied. Several pages are bundled into a .zip.
+  async function exportImages(kind) {
+    status('Creating images…', 120000);
+    try {
+      const bytes = await buildPdf();
+      const files = await PdfExport.toImages(bytes, kind, (n, total) => status(`Creating images… ${n}/${total}`, 120000));
+      if (files.length === 1) {
+        downloadBlob(files[0].blob, baseName() + '.' + kind);
+        status('Downloaded ' + baseName() + '.' + kind);
+      } else {
+        const named = {};
+        files.forEach((f, i) => (named[`${baseName()}-page-${String(i + 1).padStart(String(files.length).length, '0')}.${kind}`] = f.bytes));
+        downloadBlob(PdfExport.zip(named), baseName() + '-' + kind + '.zip');
+        status(`Downloaded ${files.length} images in ${baseName()}-${kind}.zip`);
+      }
+    } catch (err) {
+      console.error(err);
+      status('Could not export: ' + (err.message || err), 6000);
+    }
+  }
+
   // ---------- Export to Word / Excel / CSV ----------
   // Exports the text of the document as edited (added text included), leaving
   // out watermarks and any text hidden under a whiteout box.
-  async function exportAs(kind) {
-    if (!pages.length) return;
+  async function exportText(kind) {
     status('Reading text…', 60000);
     try {
       const bytes = await buildPdf({ skipWatermarks: true });

@@ -104,6 +104,33 @@
     };
   }
 
+  // ---------- Images (PNG / JPG) ----------
+  const IMAGE_DPI = 150;
+
+  // Renders every page; returns [{ blob, bytes }] in page order.
+  async function toImages(pdfBytes, kind, onProgress) {
+    const doc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+    const type = kind === 'png' ? 'image/png' : 'image/jpeg';
+    const out = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      if (onProgress) onProgress(n, doc.numPages);
+      const page = await doc.getPage(n);
+      const vp = page.getViewport({ scale: IMAGE_DPI / 72 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(vp.width);
+      canvas.height = Math.round(vp.height);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // JPG has no transparency; keep PNGs white too
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92));
+      out.push({ blob, bytes: new Uint8Array(await blob.arrayBuffer()) });
+      page.cleanup();
+    }
+    doc.destroy();
+    return out;
+  }
+
   // ---------- CSV ----------
   function toCsv(pages) {
     const esc = (v) => (/[",\r\n]/.test(v) || /^\s|\s$/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
@@ -233,6 +260,9 @@
 
   function zip(files) {
     const enc = new TextEncoder();
+    const now = new Date();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
     const parts = [], central = [];
     let offset = 0;
     for (const [name, content] of Object.entries(files)) {
@@ -243,6 +273,8 @@
       local.setUint32(0, 0x04034b50, true);
       local.setUint16(4, 20, true);
       local.setUint16(6, 0x0800, true); // UTF-8 names
+      local.setUint16(10, dosTime, true);
+      local.setUint16(12, dosDate, true);
       local.setUint32(14, crc, true);
       local.setUint32(18, data.length, true);
       local.setUint32(22, data.length, true);
@@ -254,6 +286,8 @@
       cen.setUint16(4, 20, true);
       cen.setUint16(6, 20, true);
       cen.setUint16(8, 0x0800, true);
+      cen.setUint16(12, dosTime, true);
+      cen.setUint16(14, dosDate, true);
       cen.setUint32(16, crc, true);
       cen.setUint32(20, data.length, true);
       cen.setUint32(24, data.length, true);
@@ -272,5 +306,5 @@
     return new Blob([...parts, ...central, new Uint8Array(end.buffer)]);
   }
 
-  window.PdfExport = { extractPages, toCsv, toXlsx, toDocx };
+  window.PdfExport = { extractPages, toCsv, toXlsx, toDocx, toImages, zip };
 })();
