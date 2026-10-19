@@ -18,8 +18,17 @@
         Merge
         <input type="file" id="mergeInput" accept="application/pdf,.pdf" multiple hidden>
       </label>
-      <button class="btn" id="watermarkBtn" disabled title="Add a faint diagonal DRAFT watermark to every page (click again to remove)">Watermark</button>
+      <span class="combo">
+        <input type="text" id="watermarkInput" value="DRAFT" maxlength="60" aria-label="Watermark text" title="Watermark text (DRAFT if left empty)">
+        <button class="btn" id="watermarkBtn" disabled title="Add a faint diagonal watermark with this text to every page (click again to remove)">Watermark</button>
+      </span>
       <button class="btn primary" id="saveBtn" disabled title="Download the edited PDF (Ctrl+S)">Download</button>
+      <select id="exportSelect" class="btn" disabled title="Export the text to Word, Excel or CSV">
+        <option value="">Export as…</option>
+        <option value="docx">Word (.docx)</option>
+        <option value="xlsx">Excel (.xlsx)</option>
+        <option value="csv">CSV (.csv)</option>
+      </select>
     </div>
 
     <div class="group tools" id="tools">
@@ -81,6 +90,7 @@
 
   <script src="vendor/pdf.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
+  <script src="export.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -48,6 +48,7 @@
   const fontInput = $('fontInput');
   const sizeInput = $('sizeInput');
   const widthInput = $('widthInput');
+  const watermarkInput = $('watermarkInput');
 
   // ---------- Small helpers ----------
   const uid = () => 'p' + (nextId++);
@@ -179,6 +180,7 @@
     $('redoBtn').disabled = !redoStack.length;
     $('saveBtn').disabled = !pages.length;
     $('watermarkBtn').disabled = !pages.length;
+    $('exportSelect').disabled = !pages.length;
     $('zoomLabel').textContent = Math.round(zoom * 100) + '%';
   }
 
@@ -858,33 +860,45 @@
 
   // One click: put a faint diagonal "DRAFT" across the middle of every page.
   // Clicking again when every page already has one removes them.
+  // Clicking again with the same text removes it; with different text, replaces it.
   function toggleWatermark() {
     if (!pages.length) return;
     closeTextEditor();
-    const has = (p) => p.annots.some((a) => a.watermark);
+    const text = watermarkInput.value.trim() || WATERMARK.text;
+    const has = (p) => p.annots.some((a) => a.watermark && a.wmText === text);
     checkpoint();
     selection = null;
-    if (pages.every(has)) {
-      pages.forEach((p) => { p.annots = p.annots.filter((a) => !a.watermark); });
+    const removing = pages.every(has);
+    pages.forEach((p) => { p.annots = p.annots.filter((a) => !a.watermark); });
+    if (removing) {
       renderAll();
       return status('Watermark removed');
     }
+    let unsupported = false;
     for (const page of pages) {
-      if (has(page)) continue;
       const a = {
-        type: 'text', watermark: true, text: WATERMARK.text, size: WATERMARK.size, font: WATERMARK.font,
+        type: 'text', watermark: true, wmText: text, text, size: WATERMARK.size, font: WATERMARK.font,
         color: WATERMARK.color, opacity: WATERMARK.opacity, rot: page.rotation + WATERMARK.angle, x: 0, y: 0,
       };
       layoutText(a, false);
-      // Center the rotated text box on the page.
+      if (a.text !== text) unsupported = true;
+      // Long text: shrink below 150 pt so the diagonal still fits on the page.
       const v = page.view;
+      const room = 0.9 * Math.min(v[2] - v[0], v[3] - v[1]) * Math.SQRT2;
+      if (a.w + a.h > room) {
+        a.size = Math.max(10, Math.floor((a.size * room) / (a.w + a.h)));
+        layoutText(a, false);
+      }
+      // Center the rotated text box on the page.
       const [dx, dy] = rotateVec(a.w / 2, a.h / 2, a.rot);
       a.x = (v[0] + v[2]) / 2 - dx;
       a.y = (v[1] + v[3]) / 2 - dy;
       page.annots.unshift(a); // underneath other edits, so it doesn't get in the way of selecting them
     }
     renderAll();
-    status('Watermark added to every page');
+    status(unsupported
+      ? 'Watermark added. Some characters are not supported by the built-in fonts and show as "?"'
+      : `Watermark "${text}" added to every page`, unsupported ? 6000 : 2500);
   }
 
   function deleteSelection() {
@@ -905,7 +919,7 @@
   }
 
   // ---------- Saving ----------
-  async function buildPdf() {
+  async function buildPdf({ skipWatermarks = false } = {}) {
     closeTextEditor();
     const out = await PDFDocument.create();
     // Copy each source's pages in one go so shared fonts/images are copied once.
@@ -940,6 +954,7 @@
       p.setRotation(degrees(page.rotation));
 
       for (const a of page.annots) {
+        if (skipWatermarks && a.watermark) continue;
         const color = a.color ? rgb(...hexToRgb(a.color)) : undefined;
         const rotate = degrees(a.rot || 0);
         if (a.type === 'text') {
@@ -971,24 +986,60 @@
     return out.save();
   }
 
+  function downloadBlob(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  const baseName = () => fileName.replace(/\.pdf$/i, '');
+
   async function save() {
     if (!pages.length) return;
     status('Building PDF…', 30000);
     try {
       const bytes = await buildPdf();
-      const blob = new Blob([bytes], { type: 'application/pdf' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = fileName.replace(/\.pdf$/i, '') + '-edited.pdf';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      downloadBlob(new Blob([bytes], { type: 'application/pdf' }), baseName() + '-edited.pdf');
       dirty = false;
-      status('Downloaded ' + a.download);
+      status('Downloaded ' + baseName() + '-edited.pdf');
     } catch (err) {
       console.error(err);
       status('Could not save: ' + (err.message || err), 6000);
+    }
+  }
+
+  // ---------- Export to Word / Excel / CSV ----------
+  // Exports the text of the document as edited (added text included), leaving
+  // out watermarks and any text hidden under a whiteout box.
+  async function exportAs(kind) {
+    if (!pages.length) return;
+    status('Reading text…', 60000);
+    try {
+      const bytes = await buildPdf({ skipWatermarks: true });
+      const hidden = (i, x, y) => pages[i].annots.some((a) => {
+        if (a.type !== 'whiteout') return false;
+        const [lx, ly] = toLocal(a, x, y);
+        return lx >= 0 && ly >= 0 && lx <= a.w && ly <= a.h;
+      });
+      const result = await PdfExport.extractPages(bytes, hidden);
+      if (!result.some((p) => p.rows.length)) {
+        return status('No text found. This looks like a scanned PDF (images of text), which needs OCR first.', 6000);
+      }
+      const formats = {
+        docx: [PdfExport.toDocx, '.docx'],
+        xlsx: [PdfExport.toXlsx, '.xlsx'],
+        csv: [PdfExport.toCsv, '.csv'],
+      };
+      const [convert, ext] = formats[kind];
+      downloadBlob(convert(result), baseName() + ext);
+      status('Downloaded ' + baseName() + ext);
+    } catch (err) {
+      console.error(err);
+      status('Could not export: ' + (err.message || err), 6000);
     }
   }
 
@@ -1020,6 +1071,19 @@
   $('imageInput').addEventListener('change', (e) => { addImage(e.target.files[0]); e.target.value = ''; });
   $('newBlankBtn').addEventListener('click', newBlankDocument);
   $('watermarkBtn').addEventListener('click', toggleWatermark);
+  // Remember the watermark text between visits (if the browser allows it).
+  const WM_KEY = 'pdfEditor.watermarkText';
+  try { watermarkInput.value = localStorage.getItem(WM_KEY) || WATERMARK.text; } catch { watermarkInput.value = WATERMARK.text; }
+  watermarkInput.addEventListener('change', () => {
+    if (!watermarkInput.value.trim()) watermarkInput.value = WATERMARK.text;
+    try { localStorage.setItem(WM_KEY, watermarkInput.value.trim()); } catch {}
+  });
+  watermarkInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); toggleWatermark(); } });
+  $('exportSelect').addEventListener('change', (e) => {
+    const kind = e.target.value;
+    e.target.value = '';
+    if (kind) exportAs(kind);
+  });
   $('saveBtn').addEventListener('click', save);
   $('undoBtn').addEventListener('click', undo);
   $('redoBtn').addEventListener('click', redo);
@@ -1091,5 +1155,5 @@
   updateButtons();
 
   // Exposed for automated tests.
-  window.pdfEditor = { buildPdf, getState: () => ({ pages, zoom, tool, selection }) };
+  window.pdfEditor = { buildPdf, exportAs, getState: () => ({ pages, zoom, tool, selection }) };
 })();

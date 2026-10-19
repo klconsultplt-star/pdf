@@ -22,7 +22,7 @@ A PDF editor that runs entirely in your web browser. Files never leave your comp
 | Highlight an area | **Highlight** tool, drag over the area |
 | Draw a box | **Box** tool |
 | Hide existing content | **Whiteout** tool covers it with a white box (then add new text on top to "replace" text) |
-| Watermark | **Watermark** puts a faint diagonal "DRAFT" (150 pt, bold, 10% opacity, 45°) across every page in one click. Click again to remove it. Each watermark can also be selected and moved, edited or deleted like other text |
+| Watermark | Type your text in the box next to **Watermark** (default "DRAFT", remembered for next time) and click the button: a faint diagonal watermark (bold, 150 pt, 10% opacity, 45°) goes across every page. Longer text is shrunk so it still fits the page. Click again to remove it, or change the text and click to replace it |
 | Insert an image | **Image** (PNG or JPG), or drag an image onto the window |
 | Move / resize / delete | **Select** tool: drag to move, drag the square handle to resize, Delete key to remove, arrow keys to nudge |
 | Change color, font, size, line width | Toolbar controls. With an item selected, changes apply to it |
@@ -31,6 +31,7 @@ A PDF editor that runs entirely in your web browser. Files never leave your comp
 | Merge PDFs | **Merge** adds another PDF's pages to the end |
 | Undo / redo | Buttons, or Ctrl+Z / Ctrl+Y |
 | Save | **Download** (or Ctrl+S) saves `<name>-edited.pdf` |
+| Export to Word, Excel, CSV | **Export as…** saves the text as `.docx`, `.xlsx` (one sheet per page; numbers become real numbers) or `.csv`. Includes text you added; leaves out watermarks and text hidden under Whiteout |
 
 Keyboard shortcuts for tools: V select, T text, P draw, H highlight, R box, W whiteout.
 
@@ -38,10 +39,12 @@ Keyboard shortcuts for tools: V select, T text, P draw, H highlight, R box, W wh
 
 - Text that is already in the PDF can't be edited directly. Use Whiteout to cover it, then add new text on top.
 - Added text uses the built-in PDF fonts (Helvetica, Times, Courier), which only cover Western European characters. Other characters are saved as `?`.
+- Export to Word/Excel/CSV copies the **text** only, rebuilding lines and table columns from where the text sits on the page. Images, drawings and formatting are not carried over, and complex layouts (multi-column articles, merged table cells) may need tidying. Scanned PDFs contain pictures of text, not text, so they export nothing without OCR.
 - Password-protected PDFs can be viewed, but saving them may fail.
 
 ## How it works
 
 - [`index.html`](index.html), [`styles.css`](styles.css), [`app.js`](app.js): the whole app, no build step.
+- [`export.js`](export.js): the Word/Excel/CSV export, including a small built-in zip writer (no extra libraries).
 - [pdf.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) draws the pages; [pdf-lib](https://pdf-lib.js.org/) (MIT) writes the edited PDF. Both are bundled in [`vendor/`](vendor) so the app works offline.
 - Edits are stored in PDF coordinates while you work and are written into the original pages when you download, so the original content (text, vector graphics, fonts) is kept as is.

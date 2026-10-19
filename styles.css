@@ -48,6 +48,14 @@ body { display: flex; flex-direction: column; }
   user-select: none;
 }
 .btn:hover, .tool:hover { border-color: var(--accent); }
+.combo { display: inline-flex; }
+.combo input {
+  width: 124px; height: 32px; padding: 0 8px;
+  border: 1px solid var(--border); border-right: 0; border-radius: 6px 0 0 6px;
+  font: inherit; color: var(--text); background: var(--panel);
+}
+.combo .btn { border-radius: 0 6px 6px 0; }
+select.btn { padding: 0 8px; }
 .btn:disabled { opacity: .45; cursor: default; border-color: var(--border); }
 .btn.primary, .tool.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .btn.big { height: 44px; padding: 0 20px; font-size: 16px; }
