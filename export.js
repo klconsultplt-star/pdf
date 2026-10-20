@@ -4,7 +4,8 @@
  * this rebuilds the layout: fragments on the same baseline become a line,
  * large horizontal gaps split a line into cells, and cells that start at the
  * same x position on a page share a column. This works well for ordinary
- * text and simple tables; scanned PDFs (pictures of text) contain no text.
+ * text and simple tables; scanned PDFs (pictures of text) contain no text,
+ * so the app doesn't offer export for them.
  */
 (() => {
   'use strict';
@@ -102,33 +103,6 @@
       rows,
       lines: lines.map((l) => ({ text: l.cells.map((c) => c.text).join('\t'), size: l.size })),
     };
-  }
-
-  // ---------- Images (PNG / JPG) ----------
-  const IMAGE_DPI = 150;
-
-  // Renders every page; returns [{ blob, bytes }] in page order.
-  async function toImages(pdfBytes, kind, onProgress) {
-    const doc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
-    const type = kind === 'png' ? 'image/png' : 'image/jpeg';
-    const out = [];
-    for (let n = 1; n <= doc.numPages; n++) {
-      if (onProgress) onProgress(n, doc.numPages);
-      const page = await doc.getPage(n);
-      const vp = page.getViewport({ scale: IMAGE_DPI / 72 });
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(vp.width);
-      canvas.height = Math.round(vp.height);
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#fff'; // JPG has no transparency; keep PNGs white too
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: ctx, viewport: vp }).promise;
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92));
-      out.push({ blob, bytes: new Uint8Array(await blob.arrayBuffer()) });
-      page.cleanup();
-    }
-    doc.destroy();
-    return out;
   }
 
   // ---------- CSV ----------
@@ -306,5 +280,5 @@
     return new Blob([...parts, ...central, new Uint8Array(end.buffer)]);
   }
 
-  window.PdfExport = { extractPages, toCsv, toXlsx, toDocx, toImages, zip };
+  window.PdfExport = { extractPages, toCsv, toXlsx, toDocx };
 })();

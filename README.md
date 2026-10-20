@@ -31,7 +31,7 @@ A PDF editor that runs entirely in your web browser. Files never leave your comp
 | Merge PDFs | **Merge** adds another PDF's pages to the end |
 | Undo / redo | Buttons, or Ctrl+Z / Ctrl+Y |
 | Save | **Download** (or Ctrl+S) saves `<name>-edited.pdf` |
-| Export | **Export as…** adapts to the PDF:<br>• **PDF with text:** Word (`.docx`), Excel (`.xlsx`, one sheet per page, numbers become real numbers) or CSV. Includes text you added; leaves out watermarks and text hidden under Whiteout.<br>• **Scanned PDF** (pages are pictures, no text): PNG or JPG, one image per page at 150 DPI with your edits applied. Several pages download as one `.zip` |
+| Export to Word, Excel, CSV | **Export as…** saves the text as `.docx`, `.xlsx` (one sheet per page; numbers become real numbers) or `.csv`. Includes text you added; leaves out watermarks and text hidden under Whiteout. Only available for PDFs that contain text: for scanned PDFs the menu is greyed out |
 
 Keyboard shortcuts for tools: V select, T text, P draw, H highlight, R box, W whiteout.
 
@@ -39,12 +39,12 @@ Keyboard shortcuts for tools: V select, T text, P draw, H highlight, R box, W wh
 
 - Text that is already in the PDF can't be edited directly. Use Whiteout to cover it, then add new text on top.
 - Added text uses the built-in PDF fonts (Helvetica, Times, Courier), which only cover Western European characters. Other characters are saved as `?`.
-- Export to Word/Excel/CSV copies the **text** only, rebuilding lines and table columns from where the text sits on the page. Images, drawings and formatting are not carried over, and complex layouts (multi-column articles, merged table cells) may need tidying. Scanned PDFs contain pictures of text, not text, so they can only be exported as images. A document with at least one page of real text counts as a text PDF.
+- Export to Word/Excel/CSV copies the **text** only, rebuilding lines and table columns from where the text sits on the page. Images, drawings and formatting are not carried over, and complex layouts (multi-column articles, merged table cells) may need tidying. Scanned PDFs contain pictures of text, not text, so export is turned off for them. A document with at least one page of real text counts as a text PDF.
 - Password-protected PDFs can be viewed, but saving them may fail.
 
 ## How it works
 
 - [`index.html`](index.html), [`styles.css`](styles.css), [`app.js`](app.js): the whole app, no build step.
-- [`export.js`](export.js): the Word/Excel/CSV and PNG/JPG export, including a small built-in zip writer (no extra libraries).
+- [`export.js`](export.js): the Word/Excel/CSV export, including a small built-in zip writer (no extra libraries).
 - [pdf.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) draws the pages; [pdf-lib](https://pdf-lib.js.org/) (MIT) writes the edited PDF. Both are bundled in [`vendor/`](vendor) so the app works offline.
 - Edits are stored in PDF coordinates while you work and are written into the original pages when you download, so the original content (text, vector graphics, fonts) is kept as is.

@@ -1017,58 +1017,26 @@
     }
   }
 
-  // ---------- Export ----------
-  const TEXT_FORMATS = ['docx', 'xlsx', 'csv'];
-  const IMAGE_FORMATS = ['png', 'jpg'];
-
-  // True when the original PDF content has text. Scanned PDFs (and documents
-  // made only of blank pages) have none, so they can only be exported as images.
+  // ---------- Export to Word / Excel / CSV ----------
+  // Only offered when the original PDF has real text. Scanned PDFs (pictures
+  // of text) and documents made only of blank pages have none.
   const hasText = () => pages.some((p) => p.src != null && sources[p.src].textPages.has(p.srcPage));
 
   function updateExportMenu() {
     const sel = $('exportSelect');
-    sel.disabled = !pages.length;
     const text = hasText();
-    for (const opt of sel.options) {
-      if (!opt.value) continue;
-      const allowed = text ? TEXT_FORMATS.includes(opt.value) : IMAGE_FORMATS.includes(opt.value);
-      opt.hidden = opt.disabled = !allowed;
-    }
-    sel.title = text
-      ? 'Export the text to Word, Excel or CSV'
-      : 'This PDF has no text (it looks scanned), so it can be exported as images';
+    sel.disabled = !text;
+    sel.title = !pages.length ? 'Export the text to Word, Excel or CSV'
+      : text ? 'Export the text to Word, Excel or CSV'
+      : 'Export is not available: this PDF has no text to export (for example, a scanned PDF)';
   }
 
   async function exportAs(kind) {
     if (!pages.length) return;
-    const text = hasText();
-    if (TEXT_FORMATS.includes(kind) && !text) return status('This PDF has no text (it looks scanned). Export it as PNG or JPG instead.', 6000);
-    if (IMAGE_FORMATS.includes(kind) && text) return status('This PDF has text. Export it to Word, Excel or CSV.', 6000);
-    return IMAGE_FORMATS.includes(kind) ? exportImages(kind) : exportText(kind);
+    if (!hasText()) return status('Export is not available: this PDF has no text to export (for example, a scanned PDF).', 6000);
+    return exportText(kind);
   }
 
-  // One image per page, with edits applied. Several pages are bundled into a .zip.
-  async function exportImages(kind) {
-    status('Creating images…', 120000);
-    try {
-      const bytes = await buildPdf();
-      const files = await PdfExport.toImages(bytes, kind, (n, total) => status(`Creating images… ${n}/${total}`, 120000));
-      if (files.length === 1) {
-        downloadBlob(files[0].blob, baseName() + '.' + kind);
-        status('Downloaded ' + baseName() + '.' + kind);
-      } else {
-        const named = {};
-        files.forEach((f, i) => (named[`${baseName()}-page-${String(i + 1).padStart(String(files.length).length, '0')}.${kind}`] = f.bytes));
-        downloadBlob(PdfExport.zip(named), baseName() + '-' + kind + '.zip');
-        status(`Downloaded ${files.length} images in ${baseName()}-${kind}.zip`);
-      }
-    } catch (err) {
-      console.error(err);
-      status('Could not export: ' + (err.message || err), 6000);
-    }
-  }
-
-  // ---------- Export to Word / Excel / CSV ----------
   // Exports the text of the document as edited (added text included), leaving
   // out watermarks and any text hidden under a whiteout box.
   async function exportText(kind) {
