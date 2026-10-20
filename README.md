@@ -4,13 +4,13 @@ A PDF editor that runs entirely in your web browser. Files never leave your comp
 
 ## How to run it
 
-- **Easiest:** download this repository and double-click `index.html`.
-- **Or** serve the folder with any static web server, for example:
-  ```
-  python3 -m http.server 8000
-  ```
-  then open <http://localhost:8000>.
-- **Online:** turn on GitHub Pages for this repository (Settings → Pages → deploy from the main branch) and the editor will be available at your Pages URL.
+**One file (simplest):** download [`dist/pdf-editor.html`](dist/pdf-editor.html) (on GitHub, open the file and click the **Download raw file** button), save it anywhere, and double-click it. It contains the whole editor and works offline.
+
+**Whole folder:** on GitHub click **Code → Download ZIP**, unzip it, and double-click `index.html`. `index.html` needs the files next to it (`app.js`, `export.js`, `styles.css`, `vendor/`), so don't move it out of the folder on its own.
+
+**Online:** turn on GitHub Pages for this repository (Settings → Pages) and the editor is available at your Pages URL.
+
+After changing the app's files, run `python3 build-single-file.py` to rebuild `dist/pdf-editor.html`.
 
 ## What it can do
 
