@@ -1,0 +1,17 @@
+{
+  "name": "web-to-pdf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Save any web page as a PDF that looks exactly like it does on screen.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "capture": "node capture.js",
+    "setup": "playwright install chromium"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "pdf-lib": "1.17.1",
+    "playwright": "1.56.1"
+  }
+}

@@ -2,6 +2,8 @@
 
 A PDF editor that runs entirely in your web browser. Files never leave your computer: there is no server and no upload.
 
+Also in this repository: **[Web to PDF](web-to-pdf/README.md)**, a separate tool that saves any web page as a PDF exactly as it looks on screen, and can open the result in this editor.
+
 ## How to run it
 
 **One file (simplest):** download [`dist/pdf-editor.html`](dist/pdf-editor.html) (on GitHub, open the file and click the **Download raw file** button), save it anywhere, and double-click it. It contains the whole editor and works offline.

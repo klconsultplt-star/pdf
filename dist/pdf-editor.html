@@ -1800,6 +1800,23 @@ select.btn { padding: 0 8px; }
   });
 
   loadMeasureFonts();
+
+  // Open a PDF passed in the address, e.g. editor/?pdf=/api/pdf/123&name=page.pdf
+  // (used by the Web to PDF tool). Only files from the same site are accepted.
+  (async () => {
+    const params = new URLSearchParams(location.search);
+    if (!params.get('pdf')) return;
+    try {
+      const src = new URL(params.get('pdf'), location.href);
+      if (src.origin !== location.origin) return;
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(res.status === 404 ? 'it has expired, please create it again' : 'HTTP ' + res.status);
+      const name = params.get('name') || 'page.pdf';
+      await openFile(new File([await res.blob()], name, { type: 'application/pdf' }));
+    } catch (err) {
+      status('Could not open the PDF: ' + (err.message || err), 6000);
+    }
+  })();
   updateButtons();
 
   // Exposed for automated tests.

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web to PDF</title>
+  <style>
+    :root {
+      --bg: #eef0f3; --panel: #fff; --border: #d5d9e0; --text: #1f2430; --muted: #667085;
+      --accent: #2563eb; --accent-text: #fff; --error: #b42318; --error-bg: #fef3f2;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); background: var(--bg); }
+    main { max-width: 980px; margin: 0 auto; padding: 32px 16px 48px; }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    .lead { color: var(--muted); margin: 0 0 24px; }
+    form, .result { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .url-row { display: flex; gap: 8px; }
+    .url-row input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; font: inherit; font-size: 16px; border: 1px solid var(--border); border-radius: 8px; }
+    .url-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    button, .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 46px; padding: 0 20px;
+      border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-text);
+      font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap;
+    }
+    button:disabled { opacity: .6; cursor: default; }
+    .btn.secondary { background: var(--panel); color: var(--accent); }
+    .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 18px; }
+    .options label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 14px; }
+    select { height: 40px; padding: 0 10px; font: inherit; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    fieldset { border: 0; padding: 0; margin: 0; }
+    legend { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+    .radio { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin-bottom: 4px; }
+    .radio input { margin-top: 4px; }
+    .hint { color: var(--muted); font-weight: 400; font-size: 13px; }
+    .status { margin-top: 16px; display: none; align-items: center; gap: 10px; color: var(--muted); }
+    .status.show { display: flex; }
+    .spinner { width: 18px; height: 18px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { margin-top: 16px; padding: 12px 14px; border-radius: 8px; background: var(--error-bg); color: var(--error); display: none; }
+    .error.show { display: block; }
+    .result { margin-top: 20px; display: none; }
+    .result.show { display: block; }
+    .result-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .result-title { font-weight: 600; overflow-wrap: anywhere; }
+    .result-meta { color: var(--muted); font-size: 13px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .actions .btn { height: 40px; padding: 0 16px; }
+    iframe { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+    .tip { margin-top: 10px; font-size: 13px; color: var(--muted); }
+    .tip button { all: unset; color: var(--accent); cursor: pointer; text-decoration: underline; }
+    @media (max-width: 560px) { .url-row { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Web to PDF</h1>
+  <p class="lead">Save any web page as a PDF that looks exactly like it does on screen: same layout, colors and images, on one long page.</p>
+
+  <form id="form">
+    <div class="url-row">
+      <input id="url" type="text" inputmode="url" autocomplete="url" placeholder="https://example.com/page" aria-label="Web page address" required>
+      <button id="go" type="submit">Create PDF</button>
+    </div>
+
+    <div class="options">
+      <label class="field">Screen
+        <select id="device">
+          <option value="desktop">Desktop (1440 px wide)</option>
+          <option value="laptop">Laptop (1280 px wide)</option>
+          <option value="tablet">Tablet (768 px wide)</option>
+          <option value="mobile">Phone (390 px wide)</option>
+        </select>
+      </label>
+      <label class="field">Wait before capturing
+        <select id="delay">
+          <option value="0">No extra wait</option>
+          <option value="2000">2 seconds</option>
+          <option value="5000">5 seconds</option>
+          <option value="10000">10 seconds</option>
+        </select>
+        <span class="hint">Helps with slow animations or pop-in content.</span>
+      </label>
+      <fieldset>
+        <legend>PDF type</legend>
+        <label class="radio"><input type="radio" name="mode" value="vector" checked>
+          <span>Exact layout, selectable text <span class="hint">(recommended: sharp at any zoom, links work)</span></span></label>
+        <label class="radio"><input type="radio" name="mode" value="image">
+          <span>Picture of the page <span class="hint">(pixel-perfect copy of the screen; text can't be selected)</span></span></label>
+      </fieldset>
+    </div>
+
+    <div class="status" id="status" role="status" aria-live="polite"><span class="spinner"></span><span id="statusText"></span></div>
+    <div class="error" id="error" role="alert"></div>
+  </form>
+
+  <section class="result" id="result">
+    <div class="result-head">
+      <div>
+        <div class="result-title" id="resultTitle"></div>
+        <div class="result-meta" id="resultMeta"></div>
+      </div>
+      <div class="actions">
+        <a class="btn" id="downloadBtn" href="#">Download PDF</a>
+        <a class="btn secondary" id="editBtn" href="#" target="_blank" rel="noopener">Open in PDF Editor</a>
+      </div>
+    </div>
+    <iframe id="preview" title="PDF preview"></iframe>
+    <p class="tip" id="tip">Something doesn't look right? <button type="button" id="retryImage">Try "Picture of the page"</button>, or add a wait time.</p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const form = $('form');
+  let timer;
+
+  // Remember the last choices.
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('webToPdf') || '{}'); } catch { return {}; } })();
+  if (saved.device) $('device').value = saved.device;
+  if (saved.delay) $('delay').value = saved.delay;
+  if (saved.mode) form.mode.value = saved.mode;
+
+  function setBusy(busy, text) {
+    $('go').disabled = busy;
+    $('status').classList.toggle('show', busy);
+    clearInterval(timer);
+    if (busy) {
+      const start = Date.now();
+      const tick = () => { $('statusText').textContent = `${text} ${Math.round((Date.now() - start) / 1000)} s (usually 5–30 s)`; };
+      tick();
+      timer = setInterval(tick, 1000);
+    }
+  }
+
+  function showError(msg) {
+    $('error').textContent = msg;
+    $('error').classList.toggle('show', !!msg);
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = $('url').value.trim();
+    if (!url) return;
+    const body = { url, device: $('device').value, delay: Number($('delay').value), mode: form.mode.value };
+    try { localStorage.setItem('webToPdf', JSON.stringify({ device: body.device, delay: body.delay, mode: body.mode })); } catch {}
+    showError('');
+    setBusy(true, 'Opening the page and capturing it…');
+    try {
+      const res = await fetch('api/capture', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({ error: 'The server sent an unexpected answer.' }));
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      showResult(data, body.mode);
+    } catch (err) {
+      showError(err.message === 'Failed to fetch' ? 'Could not reach the Web to PDF server. Is it still running?' : err.message);
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  function showResult(data, mode) {
+    const pdfUrl = 'api/pdf/' + data.id;
+    $('resultTitle').textContent = data.title;
+    const mb = data.bytes / 1048576;
+    $('resultMeta').textContent = `${mb >= 1 ? mb.toFixed(1) + ' MB' : Math.round(data.bytes / 1024) + ' KB'} · ${data.seconds.toFixed(0)} s · ${mode === 'image' ? 'picture of the page' : 'selectable text'}`;
+    $('downloadBtn').href = pdfUrl + '?download=1';
+    $('editBtn').href = 'editor/?pdf=' + encodeURIComponent('/' + pdfUrl) + '&name=' + encodeURIComponent(data.fileName);
+    $('preview').src = pdfUrl;
+    $('tip').hidden = mode === 'image';
+    $('result').classList.add('show');
+    $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  $('retryImage').addEventListener('click', () => {
+    form.mode.value = 'image';
+    form.requestSubmit();
+  });
+})();
+</script>
+</body>
+</html>
