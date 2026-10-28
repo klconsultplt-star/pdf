@@ -41,6 +41,8 @@ ZIP.unlink(missing_ok=True)
 with zipfile.ZipFile(ZIP, "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(OUT.rglob("*")):
         if f.is_file():
-            z.write(f, pathlib.Path("web-to-pdf-extension") / f.relative_to(OUT))
+            # Files go at the top of the zip, so unzipping gives a folder that
+            # directly contains manifest.json (the one to pick in "Load unpacked").
+            z.write(f, f.relative_to(OUT))
 
 print(f"Built {OUT.relative_to(ROOT)}/ and {ZIP.relative_to(ROOT)} ({ZIP.stat().st_size / 1e6:.1f} MB)")

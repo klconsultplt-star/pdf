@@ -13,7 +13,7 @@ The [PDF Editor](../README.md) is built in, so you can add a watermark, notes or
    - Chrome: type `chrome://extensions` in the address bar
    - Edge: type `edge://extensions` in the address bar
 3. Turn on **Developer mode** (Chrome: switch at the top right; Edge: switch on the left).
-4. Click **Load unpacked** and choose the unzipped `web-to-pdf-extension` folder (the one that contains `manifest.json`).
+4. Click **Load unpacked** and choose the unzipped folder. Pick the folder that **directly contains `manifest.json`** (with `background.js`, `popup.html` and the `editor` and `icons` folders next to it). If you get *"Manifest file is missing or unreadable"*, you picked a folder one level too high: open it and choose the folder inside.
 5. Click the puzzle-piece icon in the toolbar and **pin** "Web to PDF (exact)" so its button is always visible.
 
 ## Use it
