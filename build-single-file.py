@@ -6,6 +6,8 @@ vendor/ libraries as separate files. This script inlines all of them so the
 editor can be shared or downloaded as a single file and opened by
 double-clicking it.
 
+qpdf (password support) is built in too, so the file works offline.
+
 The pdf.js worker is inlined as a normal script. pdf.js notices it
 (window.pdfjsWorker) and does its work on the page itself instead of in a
 separate worker, which is a little slower on very large PDFs but needs no
@@ -44,6 +46,9 @@ for src in scripts:
     if src == "vendor/pdf.min.js":
         # Load the worker code on the page, right after pdf.js itself.
         replacement += "\n" + inline_script("vendor/pdf.worker.min.js")
+    if src == "security.js":
+        # Password support normally loads qpdf on first use; build it in here.
+        replacement = inline_script("vendor/qpdf.js") + "\n" + inline_script("vendor/qpdf-wasm.js") + "\n" + replacement
     html = html.replace(f'<script src="{src}"></script>', replacement)
 
 OUT.parent.mkdir(exist_ok=True)

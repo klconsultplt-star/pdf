@@ -15,7 +15,7 @@
   // ---------- Reading text from a PDF ----------
 
   // Returns [{ rows: [[cell, …], …], lines: [{ text, size }] }] per page.
-  // `skip(pageIndex, x, y)` can drop text at PDF point (x, y), e.g. under a whiteout box.
+  // `skip(pageIndex, x, y, text)` can drop text at PDF point (x, y), e.g. under a whiteout box.
   async function extractPages(pdfBytes, skip) {
     const doc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
     const out = [];
@@ -30,7 +30,7 @@
         const len = Math.hypot(a, b) || 1;
         // Middle of the fragment in PDF space, used for the whiteout check.
         const mx = e + (a / len) * it.width / 2, my = f + (b / len) * it.width / 2;
-        if (skip && skip(n - 1, mx, my)) continue;
+        if (skip && skip(n - 1, mx, my, it.str)) continue;
         // Position as displayed (y grows downward), so rotated pages read correctly.
         const m = mul(vp.transform, it.transform);
         const size = Math.hypot(m[2], m[3]);
@@ -280,5 +280,5 @@
     return new Blob([...parts, ...central, new Uint8Array(end.buffer)]);
   }
 
-  window.PdfExport = { extractPages, toCsv, toXlsx, toDocx };
+  window.PdfExport = { extractPages, toCsv, toXlsx, toDocx, zip };
 })();

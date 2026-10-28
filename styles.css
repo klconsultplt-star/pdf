@@ -7,6 +7,7 @@
   --accent: #2563eb;
   --accent-text: #ffffff;
   --select: #2563eb;
+  --danger: #b42318;
 }
 
 * { box-sizing: border-box; }
@@ -171,6 +172,84 @@ select.btn { padding: 0 8px; }
   transition: opacity .2s;
 }
 .status.show { opacity: .92; }
+
+/* "Edit text" tool: the cursor shows text can be clicked */
+.viewer[data-tool=edittext] .overlay { cursor: text; }
+.viewer[data-tool=stamp] .overlay { cursor: copy; }
+
+/* Locked download indicator */
+.btn.locked { background: #ecfdf3; border-color: #16a34a; color: #14532d; }
+
+/* ---------- Dialogs ---------- */
+dialog {
+  width: min(480px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+dialog::backdrop { background: rgba(15, 23, 42, .45); }
+dialog h2 { margin: 0 0 8px; font-size: 18px; }
+dialog p { margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.small-note { font-size: 13px; margin-top: -4px; }
+.error { color: var(--danger); min-height: 1.2em; margin: 4px 0 8px; }
+.field {
+  width: 100%; height: 36px; padding: 0 10px; margin: 4px 0 12px;
+  border: 1px solid var(--border); border-radius: 6px; font: inherit; color: var(--text); background: var(--panel);
+}
+.field.small { width: 64px; margin: 0 4px; height: 32px; }
+.field:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.choice, .check { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.choice { font-weight: 600; flex-wrap: wrap; }
+.stack { display: block; font-weight: 600; }
+.dialog-buttons { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 12px; }
+.dialog-buttons .spacer { flex: 1; }
+.dialog-buttons button, .sign-dialog .tabs button {
+  height: 36px; padding: 0 16px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text); font: inherit; cursor: pointer;
+}
+.dialog-buttons button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.dialog-buttons button.danger { color: var(--danger); }
+.dialog-buttons button[hidden] { display: none; }
+button.link { all: unset; color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+/* ---------- Signature dialog ---------- */
+.sign-dialog { width: min(620px, calc(100vw - 32px)); }
+.sign-dialog .tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.sign-dialog .tabs button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.sign-dialog .tabs button[hidden] { display: none; }
+.sign-dialog section[hidden] { display: none; }
+.sign-dialog .pad {
+  width: 100%; aspect-ratio: 1120 / 360; display: block; touch-action: none; cursor: crosshair;
+  border: 1px dashed var(--border); border-radius: 8px;
+  background: linear-gradient(transparent calc(75% - 1px), #c7cdd6 calc(75% - 1px), #c7cdd6 75%, transparent 75%) #fff;
+}
+.sign-dialog .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; }
+.sign-dialog .ink-row { justify-content: flex-start; }
+.sign-dialog .ink-row[hidden], .sign-dialog .save-row[hidden] { display: none; }
+.sign-dialog .typed { width: 100%; height: 40px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 16px; }
+.sign-dialog .styles { display: grid; gap: 8px; margin-top: 10px; }
+.sign-dialog .style {
+  height: 64px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; background: #fff;
+  font-size: 34px; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer;
+}
+.sign-dialog .style.selected { border: 2px solid var(--accent); }
+.sign-dialog .upload-preview { max-width: 100%; max-height: 180px; display: block; margin-top: 8px; border: 1px dashed var(--border); border-radius: 8px;
+  background: repeating-conic-gradient(#f1f3f5 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+.sign-dialog .saved-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.sign-dialog .saved-item { position: relative; }
+.sign-dialog .saved-item .use {
+  width: 100%; height: 80px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #fff; cursor: pointer;
+}
+.sign-dialog .saved-item .use:hover { border-color: var(--accent); }
+.sign-dialog .saved-item img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.sign-dialog .saved-item .del {
+  position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; padding: 0;
+  border: 1px solid var(--border); border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px;
+}
 
 @media (max-width: 700px) {
   .sidebar { display: none; }

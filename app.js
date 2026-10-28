@@ -16,12 +16,23 @@
   const LINE_HEIGHT = 1.2;
   const HANDLE_PX = 9;
   const BLANK_SIZE = [0, 0, 612, 792]; // US Letter
-  const CSS_FONTS = {
-    Helvetica: 'Helvetica, Arial, sans-serif',
-    TimesRoman: '"Times New Roman", Times, serif',
-    Courier: '"Courier New", Courier, monospace',
-    HelveticaBold: 'Helvetica, Arial, sans-serif',
+  // The 12 fonts built into every PDF reader: regular, bold, italic and bold
+  // italic of a sans, a serif and a monospaced family.
+  const FONT_FAMILIES = {
+    Helvetica: { css: 'Helvetica, Arial, sans-serif', names: ['Helvetica', 'HelveticaBold', 'HelveticaOblique', 'HelveticaBoldOblique'] },
+    Times: { css: '"Times New Roman", Times, serif', names: ['TimesRoman', 'TimesRomanBold', 'TimesRomanItalic', 'TimesRomanBoldItalic'] },
+    Courier: { css: '"Courier New", Courier, monospace', names: ['Courier', 'CourierBold', 'CourierOblique', 'CourierBoldOblique'] },
   };
+  const FONTS = {}; // name -> { css, bold, italic }
+  for (const { css, names } of Object.values(FONT_FAMILIES)) {
+    names.forEach((n, i) => { FONTS[n] = { css, bold: i % 2 === 1, italic: i >= 2 }; });
+  }
+  const fontKey = (family, bold, italic) => FONT_FAMILIES[family].names[(bold ? 1 : 0) + (italic ? 2 : 0)];
+  const cssFont = (name, size) => {
+    const f = FONTS[name] || FONTS.Helvetica;
+    return `${f.italic ? 'italic ' : ''}${f.bold ? 'bold ' : ''}${size}px ${f.css}`;
+  };
+  const isText = (a) => a && (a.type === 'text' || a.type === 'replace');
   const WATERMARK = { text: 'DRAFT', size: 150, opacity: 0.1, angle: 45, font: 'HelveticaBold', color: '#000000' };
 
   // ---------- State ----------
@@ -38,6 +49,10 @@
   let dirty = false;
   let nextId = 1;
   let measureFonts = null;   // pdf-lib fonts used to measure text widths
+  let savePassword = '';     // password for downloads ('' = none)
+  let pendingStamp = null;   // signature waiting to be placed: { imageId, w, h }
+  let hoverChunk = null;     // existing text under the mouse in "Edit text" mode
+  const chunkCache = new Map(); // "src:page" -> text chunks of an original page
 
   // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
@@ -106,12 +121,9 @@
   // ---------- Text measuring ----------
   async function loadMeasureFonts() {
     const doc = await PDFDocument.create();
-    measureFonts = {
-      Helvetica: await doc.embedFont(StandardFonts.Helvetica),
-      TimesRoman: await doc.embedFont(StandardFonts.TimesRoman),
-      Courier: await doc.embedFont(StandardFonts.Courier),
-      HelveticaBold: await doc.embedFont(StandardFonts.HelveticaBold),
-    };
+    const fonts = {};
+    for (const name of Object.keys(FONTS)) fonts[name] = await doc.embedFont(StandardFonts[name]);
+    measureFonts = fonts;
   }
 
   // The built-in PDF fonts only cover Western characters; swap out the rest.
@@ -180,19 +192,76 @@
     $('redoBtn').disabled = !redoStack.length;
     $('saveBtn').disabled = !pages.length;
     $('watermarkBtn').disabled = !pages.length;
+    $('splitBtn').disabled = !pages.length;
+    $('passwordBtn').disabled = !pages.length;
     updateExportMenu();
     $('zoomLabel').textContent = Math.round(zoom * 100) + '%';
   }
 
   // ---------- Loading files ----------
-  async function loadSource(bytes) {
+  class Cancelled extends Error {}
+
+  // Returns readable (decrypted) bytes, asking for the password if needed.
+  async function unlock(bytes, name) {
+    try {
+      const lib = await PDFDocument.load(bytes);
+      return { bytes, lib, password: '' };
+    } catch (err) {
+      // Not encrypted but pdf-lib can't read it: let pdf.js try, as before.
+      if (!/encrypt/i.test(String(err && err.message))) return { bytes, lib: null, password: '' };
+    }
+    status('Unlocking ' + name + '…', 30000);
+    try {
+      // Opens freely but has editing/printing restrictions.
+      return { bytes: await PdfSecurity.decrypt(bytes, ''), lib: null, password: '' };
+    } catch (err) {
+      if (err.code !== 'password') throw err;
+    }
+    for (let wrong = false; ; wrong = true) {
+      const pw = await askPassword(name, wrong);
+      if (pw == null) throw new Cancelled('Cancelled');
+      status('Unlocking ' + name + '…', 30000);
+      try {
+        return { bytes: await PdfSecurity.decrypt(bytes, pw), lib: null, password: pw };
+      } catch (err) {
+        if (err.code !== 'password') throw err;
+      }
+    }
+  }
+
+  function askPassword(name, wrong) {
+    const dlg = $('unlockDialog');
+    const form = dlg.querySelector('form');
+    $('unlockName').textContent = name;
+    $('unlockError').textContent = wrong ? 'Wrong password. Please try again.' : '';
+    $('unlockInput').value = '';
+    return new Promise((resolve) => {
+      const done = (value) => {
+        form.removeEventListener('submit', onSubmit);
+        dlg.removeEventListener('close', onClose);
+        if (dlg.open) dlg.close();
+        resolve(value);
+      };
+      const onSubmit = (e) => { e.preventDefault(); done($('unlockInput').value); };
+      const onClose = () => done(null);
+      form.addEventListener('submit', onSubmit);
+      dlg.addEventListener('close', onClose);
+      dlg.showModal();
+      $('unlockInput').focus();
+    });
+  }
+
+  // Loads one PDF file; returns { pages, password }.
+  async function loadSource(bytes, name = 'this PDF') {
+    const unlocked = await unlock(bytes, name);
+    bytes = unlocked.bytes;
     const task = pdfjsLib.getDocument({ data: bytes.slice() });
     task.onPassword = (updatePassword, reason) => {
       const pw = window.prompt(reason === 2 ? 'Wrong password. Try again:' : 'This PDF is password protected. Password:');
       if (pw == null) task.destroy(); else updatePassword(pw);
     };
     const pdfjs = await task.promise;
-    const src = { bytes, pdfjs, lib: null, pageCache: new Map(), textPages: new Set() };
+    const src = { bytes, pdfjs, lib: unlocked.lib, pageCache: new Map(), textPages: new Set() };
     sources.push(src);
     const index = sources.length - 1;
     const out = [];
@@ -205,7 +274,7 @@
       const tc = await (await getPdfjsPage(src, pg.srcPage)).getTextContent();
       if (tc.items.some((it) => it.str && it.str.trim())) src.textPages.add(pg.srcPage);
     }));
-    return out;
+    return { pages: out, password: unlocked.password };
   }
 
   function getPdfjsPage(src, n) {
@@ -223,16 +292,25 @@
     status('Opening ' + file.name + '…', 10000);
     try {
       const bytes = await readFile(file);
-      sources.length = 0;
+      const loaded = await loadSource(bytes, file.name);
+      // Only replace the current document once the new one has loaded.
+      sources.splice(0, sources.length - 1);
+      loaded.pages.forEach((p) => { p.src = 0; });
       images.clear();
-      const newPages = await loadSource(bytes);
-      pages = newPages;
+      chunkCache.clear();
+      pages = loaded.pages;
       fileName = file.name;
+      savePassword = loaded.password; // a locked file stays locked when downloaded
+      updatePasswordButton();
       undoStack = []; redoStack = []; dirty = false; selection = null;
       zoom = fitZoom();
       renderAll();
-      status(`Opened ${file.name} (${pages.length} page${pages.length === 1 ? '' : 's'})`);
+      const n = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
+      status(loaded.password
+        ? `Opened ${file.name} (${n}). It's password protected: the downloaded copy keeps the same password (change it with the Password button).`
+        : `Opened ${file.name} (${n})`, loaded.password ? 7000 : 2500);
     } catch (err) {
+      if (err instanceof Cancelled) return status('Opening cancelled');
       console.error(err);
       status('Could not open this file: ' + (err.message || err), 5000);
     }
@@ -242,13 +320,14 @@
     if (!files.length) return;
     try {
       const added = [];
-      for (const f of files) added.push(...(await loadSource(await readFile(f))));
+      for (const f of files) added.push(...(await loadSource(await readFile(f), f.name)).pages);
       checkpoint();
       pages.push(...added);
       if (!fileName || !sources.length) fileName = files[0].name;
       renderAll();
       status(`Added ${added.length} page${added.length === 1 ? '' : 's'}`);
     } catch (err) {
+      if (err instanceof Cancelled) return status('Cancelled');
       console.error(err);
       status('Could not add this file: ' + (err.message || err), 5000);
     }
@@ -259,6 +338,9 @@
     images.clear();
     pages = [{ id: uid(), src: null, srcPage: 0, rotation: 0, view: BLANK_SIZE.slice(), annots: [] }];
     fileName = 'document.pdf';
+    chunkCache.clear();
+    savePassword = '';
+    updatePasswordButton();
     undoStack = []; redoStack = []; dirty = false; selection = null;
     zoom = fitZoom();
     renderAll();
@@ -358,19 +440,34 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const vp = viewportFor(page, zoom * DPR);
     ctx.setTransform(...vp.transform);
+    const editingHere = editing && editing.pageId === pageId;
     page.annots.forEach((a, i) => {
-      if (editing && editing.pageId === pageId && editing.index === i) return;
+      // The text being typed is shown in the text box; keep its cover patch.
+      if (editingHere && editing.index === i) { if (a.cover) drawCover(ctx, a.cover); return; }
       drawAnnot(ctx, a);
     });
+    if (editingHere && editing.index < 0 && editing.annot.cover) drawCover(ctx, editing.annot.cover);
     if (drag && drag.pageId === pageId && drag.preview) drawAnnot(ctx, drag.preview);
+    if (hoverChunk && hoverChunk.pageId === pageId && tool === 'edittext' && !editing) drawChunkOutline(ctx, hoverChunk.chunk);
     if (selection && selection.pageId === pageId) {
       const a = page.annots[selection.index];
       if (a) drawSelection(ctx, a);
     }
   }
 
+  // A patch in the page's background colour that hides original text.
+  function drawCover(ctx, c) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(rad(c.rot || 0));
+    ctx.fillStyle = c.fill;
+    ctx.fillRect(0, 0, c.w, c.h);
+    ctx.restore();
+  }
+
   // ctx must already map PDF points to canvas pixels.
   function drawAnnot(ctx, a) {
+    if (a.cover) drawCover(ctx, a.cover);
     ctx.save();
     if (a.type === 'pen') {
       ctx.strokeStyle = a.color;
@@ -387,10 +484,11 @@
     ctx.translate(a.x, a.y);
     ctx.rotate(rad(a.rot || 0));
     switch (a.type) {
-      case 'text': {
+      case 'text':
+      case 'replace': {
         if (a.opacity != null) ctx.globalAlpha = a.opacity;
         ctx.fillStyle = a.color;
-        ctx.font = `${a.font === 'HelveticaBold' ? 'bold ' : ''}${a.size}px ${CSS_FONTS[a.font]}`;
+        ctx.font = cssFont(a.font, a.size);
         ctx.textBaseline = 'alphabetic';
         a.text.split('\n').forEach((line, i) => {
           ctx.save();
@@ -452,6 +550,7 @@
 
   // A rotated box describing an annotation (pen strokes use their bounding box).
   function bounds(a) {
+    if (a.type === 'replace' && !a.text) return { ...a.cover }; // text deleted: just the patch
     if (a.type !== 'pen') return { x: a.x, y: a.y, w: a.w, h: a.h, rot: a.rot || 0 };
     const xs = a.points.map((p) => p[0]), ys = a.points.map((p) => p[1]);
     const r = a.lineWidth / 2;
@@ -582,12 +681,16 @@
           const p = a.points[k], q = a.points[k + 1] || p;
           if (distToSegment(x, y, p, q) <= lim) return i;
         }
-      } else {
-        const [lx, ly] = toLocal(a, x, y);
-        if (lx >= -tol && ly >= -tol && lx <= a.w + tol && ly <= a.h + tol) return i;
+      } else if (inBox(a, x, y, tol) || (a.cover && inBox(a.cover, x, y, 0))) {
+        return i;
       }
     }
     return -1;
+  }
+
+  function inBox(b, x, y, tol) {
+    const [lx, ly] = toLocal(b, x, y);
+    return lx >= -tol && ly >= -tol && lx <= b.w + tol && ly <= b.h + tol;
   }
 
   function distToSegment(x, y, [x1, y1], [x2, y2]) {
@@ -612,7 +715,7 @@
     if (selection) {
       const a = pageById(pageId).annots[index];
       if (a.color && a.color.startsWith('#')) colorInput.value = a.color;
-      if (a.type === 'text') { sizeInput.value = a.size; fontInput.value = a.font; }
+      if (isText(a)) { sizeInput.value = a.size; fontInput.value = a.font; }
       if (a.lineWidth) widthInput.value = a.lineWidth;
     }
   }
@@ -636,8 +739,18 @@
         }
       } else if (tool === 'text') {
         const i = hitTest(page, x, y);
-        if (i >= 0 && page.annots[i].type === 'text') openTextEditor(pageId, i);
+        if (i >= 0 && isText(page.annots[i])) openTextEditor(pageId, i);
         else openTextEditor(pageId, -1, x, y);
+        e.preventDefault();
+        return;
+      } else if (tool === 'edittext') {
+        const i = hitTest(page, x, y);
+        if (i >= 0 && isText(page.annots[i])) openTextEditor(pageId, i);
+        else startTextEdit(pageId, x, y);
+        e.preventDefault();
+        return;
+      } else if (tool === 'stamp') {
+        if (pendingStamp) placeImage(page, pendingStamp.imageId, pendingStamp.w, pendingStamp.h, x, y, { signature: true });
         e.preventDefault();
         return;
       } else if (tool === 'pen') {
@@ -652,6 +765,7 @@
     canvas.addEventListener('pointermove', (e) => {
       if (!drag || drag.pageId !== pageId) {
         if (tool === 'select') updateHoverCursor(canvas, pageId, e);
+        else if (tool === 'edittext') updateTextHover(pageId, e);
         return;
       }
       const page = pageById(pageId);
@@ -692,13 +806,16 @@
     };
     canvas.addEventListener('pointerup', finish);
     canvas.addEventListener('pointercancel', finish);
+    canvas.addEventListener('pointerleave', () => {
+      if (hoverChunk && hoverChunk.pageId === pageId) { hoverChunk = null; drawOverlay(pageId); }
+    });
 
     canvas.addEventListener('dblclick', (e) => {
       if (tool !== 'select') return;
       const page = pageById(pageId);
       const [x, y] = pdfPoint(e, pageId);
       const i = hitTest(page, x, y);
-      if (i >= 0 && page.annots[i].type === 'text') openTextEditor(pageId, i);
+      if (i >= 0 && isText(page.annots[i])) openTextEditor(pageId, i);
     });
   }
 
@@ -727,7 +844,7 @@
     w = Math.max(w, 4);
     let h = Math.max(-negH, 4);
     if (a.type === 'image') h = (w * orig.h) / orig.w;
-    if (a.type === 'text') {
+    if (isText(a)) {
       a.size = Math.max(4, Math.round(((orig.size * w) / orig.w) * 2) / 2);
       a.x = orig.x; a.y = orig.y; a.h = orig.h;
       layoutText(a);
@@ -738,16 +855,18 @@
   }
 
   // ---------- Text editing ----------
-  function openTextEditor(pageId, index, x, y) {
+  // index >= 0: edit that annotation; otherwise new text at (x, y), or the
+  // given draft (replacing original text, from the Edit text tool).
+  function openTextEditor(pageId, index, x, y, draft) {
     closeTextEditor();
     const page = pageById(pageId);
     const existing = index >= 0 ? page.annots[index] : null;
-    const a = existing || {
+    const a = existing || draft || {
       type: 'text', text: '', size: +sizeInput.value || 14, font: fontInput.value,
       color: colorInput.value, rot: page.rotation, x, y, w: 0, h: null,
     };
     // Top-left corner of the text box, in PDF points.
-    const top = existing ? fromLocal(a, 0, a.h) : [x, y];
+    const top = existing || draft ? fromLocal(a, 0, a.h) : [x, y];
     const vp = viewportFor(page, zoom);
     const [sx, sy] = vp.convertToViewportPoint(top[0], top[1]);
     // Where the box's top-left lands on screen depends on page vs. text rotation.
@@ -761,10 +880,10 @@
     ta.style.top = sy + 'px';
     ta.style.transformOrigin = '0 0';
     ta.style.transform = screenRot ? `rotate(${screenRot}deg)` : '';
-    ta.style.fontSize = a.size * zoom + 'px';
-    ta.style.fontFamily = CSS_FONTS[a.font];
-    ta.style.fontWeight = a.font === 'HelveticaBold' ? 'bold' : 'normal';
+    ta.style.font = cssFont(a.font, a.size * zoom);
+    ta.style.lineHeight = LINE_HEIGHT;
     ta.style.color = a.color;
+    if (a.cover) ta.style.background = a.cover.fill; // hide the original words while typing
     const fit = () => {
       const lines = ta.value.split('\n');
       ta.rows = Math.max(1, lines.length);
@@ -782,7 +901,8 @@
     pageEl(pageId).appendChild(ta);
     fit();
     editing = { pageId, index, annot: a, top, el: ta };
-    if (existing) drawOverlay(pageId);
+    if (existing || draft) drawOverlay(pageId);
+    if (draft) ta.select();
     ta.focus();
     setTimeout(() => { if (editing && editing.el === ta) ta.focus(); }, 0);
   }
@@ -796,17 +916,19 @@
     if (!page) return;
     const text = ed.el.value.replace(/\s+$/, '');
     if (commit) {
-      const original = ed.index >= 0 ? page.annots[ed.index].text : '';
+      const target = ed.index >= 0 ? page.annots[ed.index] : ed.annot;
+      const replacing = target.type === 'replace';
+      const original = ed.index >= 0 ? target.text : replacing ? target.orig : '';
       if (text !== original) {
         checkpoint();
-        if (!text && ed.index >= 0) {
+        if (!text && ed.index >= 0 && !replacing) {
           page.annots.splice(ed.index, 1);
           selection = null;
-        } else if (text) {
-          const a = ed.index >= 0 ? page.annots[ed.index] : ed.annot;
+        } else if (text || replacing) { // replaced text may become empty: that deletes the original words
+          const a = target;
           a.text = text;
           if (ed.index < 0) {
-            a.h = 0; a.x = ed.top[0]; a.y = ed.top[1]; // h=0 so the top-left stays at the click point
+            if (!replacing) { a.h = 0; a.x = ed.top[0]; a.y = ed.top[1]; } // h=0 so the top-left stays at the click point
             page.annots.push(a);
           }
           layoutText(a);
@@ -818,6 +940,205 @@
     drawOverlay(ed.pageId);
   }
 
+  // ---------- Editing text that is already in the PDF ----------
+  // pdf.js reports where each piece of text sits. Pieces on the same line that
+  // are close together form one editable "chunk" (a phrase, line or table cell).
+  // Editing covers the original words with a patch in the background colour
+  // and writes the new words on top in a matching font, size and colour.
+
+  function pageChunks(page) { // the chunks, or null while still loading
+    if (page.src == null) return [];
+    const key = page.src + ':' + page.srcPage;
+    const cached = chunkCache.get(key);
+    if (Array.isArray(cached)) return cached;
+    if (!cached) {
+      chunkCache.set(key, loadChunks(page.src, page.srcPage)
+        .catch((err) => { console.error(err); return []; })
+        .then((list) => { chunkCache.set(key, list); return list; }));
+    }
+    return null;
+  }
+
+  const pageChunksAsync = async (page) => pageChunks(page) || chunkCache.get(page.src + ':' + page.srcPage);
+
+  async function loadChunks(srcIndex, n) {
+    const tc = await (await getPdfjsPage(sources[srcIndex], n)).getTextContent();
+    // Work in each piece's own direction: u along the baseline, v across it.
+    const items = [];
+    for (const it of tc.items) {
+      // Skip spaces: pdf.js stretches them across gaps (even between table
+      // columns); real word gaps are re-detected from the positions below.
+      if (!it.str || !it.str.trim()) continue;
+      const [a, b, c, d, e, f] = it.transform;
+      const size = Math.hypot(c, d);
+      if (!size) continue;
+      const rot = Math.round((Math.atan2(b, a) * 180) / Math.PI * 10) / 10;
+      const [u, v] = rotateVec(e, f, -rot);
+      items.push({ str: it.str, u, v, w: it.width, size, rot, fontName: it.fontName, family: (tc.styles[it.fontName] || {}).fontFamily });
+    }
+    // Group into lines, then join neighbours on each line.
+    const lines = [];
+    for (const it of items) {
+      const line = lines.find((l) => Math.abs(l.rot - it.rot) < 1 && Math.abs(l.v - it.v) < Math.min(l.size, it.size) * 0.3);
+      if (line) line.items.push(it); else lines.push({ rot: it.rot, v: it.v, size: it.size, items: [it] });
+    }
+    const chunks = [];
+    for (const line of lines) {
+      line.items.sort((p, q) => p.u - q.u);
+      let cur = null;
+      for (const it of line.items) {
+        const gap = cur ? it.u - cur.end : 0;
+        const ratio = cur ? it.size / cur.size : 1;
+        if (cur && gap > -cur.size * 0.5 && gap < cur.size * 1.0 && ratio > 0.75 && ratio < 1.33) {
+          if (gap > cur.size * 0.15 && !/\s$/.test(cur.str) && !/^\s/.test(it.str)) cur.str += ' ';
+          cur.str += it.str;
+          cur.end = Math.max(cur.end, it.u + it.w);
+          cur.size = Math.max(cur.size, it.size);
+        } else {
+          cur = { str: it.str, u: it.u, v: it.v, end: it.u + it.w, size: it.size, rot: it.rot, fontName: it.fontName, family: it.family };
+          chunks.push(cur);
+        }
+      }
+    }
+    chunks.forEach((ch) => { ch.str = ch.str.replace(/\s+/g, ' ').trim(); });
+    return chunks.filter((ch) => ch.str);
+  }
+
+  // Corners of a chunk's box in its own direction (u, v), with room for
+  // descenders below the baseline and capitals above it.
+  const chunkBox = (ch, pad = 0) => ({ u0: ch.u - pad, u1: ch.end + pad, v0: ch.v - ch.size * 0.3, v1: ch.v + ch.size * 0.95 });
+
+  function chunkAt(chunks, x, y) {
+    for (const ch of chunks) {
+      const [u, v] = rotateVec(x, y, -ch.rot);
+      const b = chunkBox(ch, 1);
+      if (u >= b.u0 && u <= b.u1 && v >= b.v0 && v <= b.v1) return ch;
+    }
+    return null;
+  }
+
+  function drawChunkOutline(ctx, ch) {
+    const px = 1 / (zoom * DPR);
+    const b = chunkBox(ch, 1);
+    ctx.save();
+    ctx.rotate(rad(ch.rot));
+    ctx.fillStyle = 'rgba(37, 99, 235, 0.08)';
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 1.2 * DPR * px;
+    ctx.setLineDash([4 * DPR * px, 3 * DPR * px]);
+    ctx.fillRect(b.u0, b.v0, b.u1 - b.u0, b.v1 - b.v0);
+    ctx.strokeRect(b.u0, b.v0, b.u1 - b.u0, b.v1 - b.v0);
+    ctx.restore();
+  }
+
+  function updateTextHover(pageId, e) {
+    const page = pageById(pageId);
+    const [x, y] = pdfPoint(e, pageId);
+    const chunks = pageChunks(page);
+    const ch = chunks && hitTest(page, x, y) < 0 ? chunkAt(chunks, x, y) : null;
+    const prev = hoverChunk;
+    if ((prev && prev.chunk) === ch) return;
+    hoverChunk = ch ? { pageId, chunk: ch } : null;
+    if (prev && prev.pageId !== pageId) drawOverlay(prev.pageId);
+    drawOverlay(pageId);
+  }
+
+  // Closest built-in font, from the embedded font's name (e.g. "ABCDEF+Arial-BoldItalicMT").
+  async function matchFont(page, ch) {
+    let name = '', bold = false, italic = false;
+    try {
+      const p = await getPdfjsPage(sources[page.src], page.srcPage);
+      if (p.commonObjs.has(ch.fontName)) {
+        const f = p.commonObjs.get(ch.fontName);
+        name = String(f.name || ''); bold = !!f.bold; italic = !!f.italic;
+      }
+    } catch { /* font not loaded yet */ }
+    bold = bold || /bold|black|heavy|semibold|demi/i.test(name);
+    italic = italic || /italic|oblique/i.test(name);
+    const sans = /sans|arial|helvet|verdana|tahoma|calibri|segoe|roboto|gothic|frutiger|univers|futura/i.test(name);
+    const family = /courier|mono|consol|menlo|typewriter/i.test(name) || ch.family === 'monospace' ? 'Courier'
+      : !sans && (/times|serif|georgia|garamond|roman|cambria|minion|book|palatino|baskerville|caslon/i.test(name) || (!name && ch.family === 'serif')) ? 'Times'
+      : 'Helvetica';
+    return fontKey(family, bold, italic);
+  }
+
+  // Background and ink colours of a chunk, read from the rendered page.
+  function sampleColors(page, ch) {
+    const fallback = { bg: '#ffffff', fg: '#000000' };
+    const canvas = pageEl(page.id) && pageEl(page.id).querySelector('canvas.base');
+    if (!canvas || !canvas.width) return fallback;
+    const vp = viewportFor(page, zoom * DPR);
+    const b = chunkBox(ch, 1);
+    const pts = [[b.u0, b.v0], [b.u1, b.v0], [b.u0, b.v1], [b.u1, b.v1]]
+      .map(([u, v]) => vp.convertToViewportPoint(...rotateVec(u, v, ch.rot)));
+    const x0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[0]))) - 3);
+    const y0 = Math.max(0, Math.floor(Math.min(...pts.map((p) => p[1]))) - 3);
+    const x1 = Math.min(canvas.width, Math.ceil(Math.max(...pts.map((p) => p[0]))) + 3);
+    const y1 = Math.min(canvas.height, Math.ceil(Math.max(...pts.map((p) => p[1]))) + 3);
+    const w = x1 - x0, h = y1 - y0;
+    if (w < 3 || h < 3) return fallback;
+    const d = canvas.getContext('2d').getImageData(x0, y0, w, h).data;
+    const px = (i) => [d[i * 4], d[i * 4 + 1], d[i * 4 + 2]];
+    // Background: the most common colour around the edge of the box.
+    const counts = new Map();
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (x > 1 && x < w - 2 && y > 1 && y < h - 2) continue;
+        const c = px(y * w + x);
+        const key = (c[0] >> 3) + ',' + (c[1] >> 3) + ',' + (c[2] >> 3);
+        const e = counts.get(key) || { n: 0, sum: [0, 0, 0] };
+        e.n++; e.sum = e.sum.map((s, k) => s + c[k]);
+        counts.set(key, e);
+      }
+    }
+    const top = [...counts.values()].sort((p, q) => q.n - p.n)[0];
+    const bg = top.sum.map((s) => Math.round(s / top.n));
+    // Ink: the pixels that differ most from the background.
+    let maxDist = 0;
+    const dist = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const c = px(i);
+      dist[i] = Math.hypot(c[0] - bg[0], c[1] - bg[1], c[2] - bg[2]);
+      if (dist[i] > maxDist) maxDist = dist[i];
+    }
+    const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+    if (maxDist < 40) return { bg: hex(bg), fg: fallback.fg };
+    const sum = [0, 0, 0];
+    let n = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (dist[i] >= maxDist * 0.85) { const c = px(i); sum[0] += c[0]; sum[1] += c[1]; sum[2] += c[2]; n++; }
+    }
+    return { bg: hex(bg), fg: hex(sum.map((s) => Math.round(s / n))) };
+  }
+
+  async function startTextEdit(pageId, x, y) {
+    const page = pageById(pageId);
+    if (page.src == null) return status('This page has no original text. Use Add text to write on it.', 4000);
+    const ch = chunkAt(await pageChunksAsync(page), x, y);
+    if (!ch) {
+      const scanned = !sources[page.src].textPages.has(page.srcPage);
+      return status(scanned
+        ? "This page has no editable text (it looks scanned: the text is a picture). Use Whiteout and Add text instead."
+        : 'Click directly on a word or line of text to edit it.', 5000);
+    }
+    const size = Math.round(ch.size * 10) / 10;
+    const { bg, fg } = sampleColors(page, ch);
+    const pad = 0.6 + size * 0.04;
+    const [cx, cy] = rotateVec(ch.u - pad, ch.v - size * 0.3, ch.rot);
+    // The text box is placed so its first baseline sits on the original one.
+    const [tx, ty] = rotateVec(ch.u, ch.v - size * 0.25, ch.rot);
+    const draft = {
+      type: 'replace', text: ch.str, font: await matchFont(page, ch), size, color: fg, rot: ch.rot,
+      x: tx, y: ty, w: 0, h: size * LINE_HEIGHT,
+      cover: { x: cx, y: cy, w: ch.end - ch.u + 2 * pad, h: size * 1.3, rot: ch.rot, fill: bg },
+    };
+    layoutText(draft, false);
+    draft.orig = draft.text; // unchanged text means nothing to save
+    if (draft.text !== ch.str) status('Some characters here aren\'t in the built-in fonts and show as "?".', 5000);
+    hoverChunk = null;
+    openTextEditor(pageId, -1, 0, 0, draft);
+  }
+
   // ---------- Images ----------
   async function addImage(file) {
     if (!file) return;
@@ -826,25 +1147,51 @@
     const isPng = bytes[0] === 0x89 && bytes[1] === 0x50;
     const isJpg = bytes[0] === 0xff && bytes[1] === 0xd8;
     if (!isPng && !isJpg) return status('Please choose a PNG or JPG image');
-    const id = 'img' + nextId++;
-    const el = new Image();
-    el.src = URL.createObjectURL(new Blob([bytes], { type: isPng ? 'image/png' : 'image/jpeg' }));
-    await el.decode();
-    images.set(id, { bytes, kind: isPng ? 'png' : 'jpg', el });
-
+    const id = await registerImage(bytes, isPng ? 'png' : 'jpg');
+    const el = images.get(id).el;
     const page = pageById(currentPageId) || pages[0];
     const v = page.view;
     const pw = v[2] - v[0], ph = v[3] - v[1];
     const scale = Math.min(1, (pw * 0.5) / el.naturalWidth, (ph * 0.5) / el.naturalHeight);
-    const w = el.naturalWidth * scale, h = el.naturalHeight * scale;
-    // Center it on the page, upright as the page is displayed.
-    const cx = v[0] + pw / 2, cy = v[1] + ph / 2;
+    placeImage(page, id, el.naturalWidth * scale, el.naturalHeight * scale, v[0] + pw / 2, v[1] + ph / 2);
+  }
+
+  async function registerImage(bytes, kind) {
+    const id = 'img' + nextId++;
+    const el = new Image();
+    el.src = URL.createObjectURL(new Blob([bytes], { type: kind === 'png' ? 'image/png' : 'image/jpeg' }));
+    await el.decode();
+    images.set(id, { bytes, kind, el });
+    return id;
+  }
+
+  // Put an image centred on (cx, cy), upright as the page is displayed.
+  function placeImage(page, imageId, w, h, cx, cy, extra = {}) {
     const [ox, oy] = rotateVec(-w / 2, -h / 2, page.rotation);
     checkpoint();
-    page.annots.push({ type: 'image', imageId: id, x: cx + ox, y: cy + oy, w, h, rot: page.rotation });
+    page.annots.push({ type: 'image', imageId, x: cx + ox, y: cy + oy, w, h, rot: page.rotation, ...extra });
     setTool('select');
     select(page.id, page.annots.length - 1);
     refreshThumb(page.id);
+  }
+
+  // ---------- Signatures ----------
+  async function startSignature() {
+    if (!pages.length) return status('Open a PDF first.');
+    closeTextEditor();
+    const url = await PdfSignature.choose();
+    if (!url) return;
+    const bin = atob(url.slice(url.indexOf(',') + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const imageId = await registerImage(bytes, 'png');
+    const el = images.get(imageId).el;
+    // About 6 cm wide, but never taller than about 2.5 cm.
+    let w = 170, h = (w * el.naturalHeight) / el.naturalWidth;
+    if (h > 70) { h = 70; w = (h * el.naturalWidth) / el.naturalHeight; }
+    setTool('stamp');
+    pendingStamp = { imageId, w, h };
+    status('Click on the page where the signature should go (Esc to cancel). You can move and resize it afterwards.', 8000);
   }
 
   // ---------- Property changes apply to the selected item ----------
@@ -859,8 +1206,8 @@
   }
 
   colorInput.addEventListener('change', () => applyProp((a) => { if (a.color) a.color = colorInput.value; }));
-  sizeInput.addEventListener('change', () => applyProp((a) => { if (a.type === 'text') { a.size = Math.max(4, +sizeInput.value || 14); layoutText(a); } }));
-  fontInput.addEventListener('change', () => applyProp((a) => { if (a.type === 'text') { a.font = fontInput.value; layoutText(a); } }));
+  sizeInput.addEventListener('change', () => applyProp((a) => { if (isText(a)) { a.size = Math.max(4, +sizeInput.value || 14); layoutText(a); } }));
+  fontInput.addEventListener('change', () => applyProp((a) => { if (isText(a)) { a.font = fontInput.value; layoutText(a); } }));
   widthInput.addEventListener('change', () => applyProp((a) => { if ('lineWidth' in a) a.lineWidth = Math.max(0.5, +widthInput.value || 2); }));
 
   // One click: put a faint diagonal "DRAFT" across the middle of every page.
@@ -924,13 +1271,14 @@
   }
 
   // ---------- Saving ----------
-  async function buildPdf({ skipWatermarks = false } = {}) {
+  // `list` picks which pages to include (default: all, in order).
+  async function buildPdf({ skipWatermarks = false, list = pages } = {}) {
     closeTextEditor();
     const out = await PDFDocument.create();
     // Copy each source's pages in one go so shared fonts/images are copied once.
     const copied = new Map(); // "src:page" -> PDFPage
     for (let s = 0; s < sources.length; s++) {
-      const wanted = [...new Set(pages.filter((p) => p.src === s).map((p) => p.srcPage))];
+      const wanted = [...new Set(list.filter((p) => p.src === s).map((p) => p.srcPage))];
       if (!wanted.length) continue;
       const src = sources[s];
       if (!src.lib) src.lib = await PDFDocument.load(src.bytes, { ignoreEncryption: true });
@@ -949,7 +1297,7 @@
       return embedded[id];
     };
 
-    for (const page of pages) {
+    for (const page of list) {
       let p;
       if (page.src == null) {
         p = out.addPage([page.view[2] - page.view[0], page.view[3] - page.view[1]]);
@@ -962,7 +1310,11 @@
         if (skipWatermarks && a.watermark) continue;
         const color = a.color ? rgb(...hexToRgb(a.color)) : undefined;
         const rotate = degrees(a.rot || 0);
-        if (a.type === 'text') {
+        if (a.cover) {
+          const c = a.cover;
+          p.drawRectangle({ x: c.x, y: c.y, width: c.w, height: c.h, rotate: degrees(c.rot || 0), color: rgb(...hexToRgb(c.fill)) });
+        }
+        if (isText(a)) {
           const font = await getFont(a.font);
           a.text.split('\n').forEach((line, i) => {
             if (!line) return;
@@ -1003,14 +1355,17 @@
 
   const baseName = () => fileName.replace(/\.pdf$/i, '');
 
+  // Lock the file if a password is set.
+  const protect = async (bytes) => (savePassword ? PdfSecurity.encrypt(bytes, savePassword) : bytes);
+
   async function save() {
     if (!pages.length) return;
     status('Building PDF…', 30000);
     try {
-      const bytes = await buildPdf();
+      const bytes = await protect(await buildPdf());
       downloadBlob(new Blob([bytes], { type: 'application/pdf' }), baseName() + '-edited.pdf');
       dirty = false;
-      status('Downloaded ' + baseName() + '-edited.pdf');
+      status('Downloaded ' + baseName() + '-edited.pdf' + (savePassword ? ' (password protected)' : ''));
     } catch (err) {
       console.error(err);
       status('Could not save: ' + (err.message || err), 6000);
@@ -1043,11 +1398,18 @@
     status('Reading text…', 60000);
     try {
       const bytes = await buildPdf({ skipWatermarks: true });
-      const hidden = (i, x, y) => pages[i].annots.some((a) => {
-        if (a.type !== 'whiteout') return false;
-        const [lx, ly] = toLocal(a, x, y);
-        return lx >= 0 && ly >= 0 && lx <= a.w && ly <= a.h;
-      });
+      // Text under a whiteout box or an edit patch is hidden, except the
+      // text that was added on top of it.
+      const hidden = (i, x, y, str) => {
+        const annots = pages[i].annots;
+        const covered = annots.some((a) => {
+          const box = a.type === 'whiteout' ? a : a.cover;
+          return box ? inBox(box, x, y, 0) : false;
+        });
+        if (!covered) return false;
+        const piece = str.trim();
+        return !annots.some((t) => isText(t) && !t.watermark && t.text && t.text.includes(piece) && inBox(t, x, y, t.size * 0.5));
+      };
       const result = await PdfExport.extractPages(bytes, hidden);
       if (!result.some((p) => p.rows.length)) {
         return status('No text found. This looks like a scanned PDF (images of text), which needs OCR first.', 6000);
@@ -1066,12 +1428,118 @@
     }
   }
 
+  // ---------- Split / extract pages ----------
+  // "1-3, 5, 8-" -> [0, 1, 2, 4, 7, …]; throws a readable message if invalid.
+  function parseRanges(text, count) {
+    const out = [];
+    const parts = text.replace(/\s*-\s*/g, '-').split(/[,;\s]+/).filter(Boolean);
+    if (!parts.length) throw new Error('Type the pages to save, for example 1-3, 5.');
+    for (const part of parts) {
+      const m = part.match(/^(\d*)-?(\d*)$/);
+      if (!m || (!m[1] && !m[2])) throw new Error(`"${part}" isn't a page or range. Use numbers like 2 or 4-7.`);
+      const range = part.includes('-');
+      const a = m[1] ? +m[1] : 1;
+      const b = range ? (m[2] ? +m[2] : count) : a;
+      if (a < 1 || b < 1 || a > count || b > count) throw new Error(`Page ${Math.max(a, b) > count ? Math.max(a, b) : 0} doesn't exist: this document has pages 1 to ${count}.`);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) if (!out.includes(i - 1)) out.push(i - 1);
+    }
+    return out;
+  }
+
+  function openSplitDialog() {
+    if (!pages.length) return;
+    closeTextEditor();
+    $('splitCount').textContent = pages.length + (pages.length === 1 ? ' page' : ' pages');
+    const current = pages.findIndex((p) => p.id === currentPageId) + 1 || 1;
+    $('splitRanges').value = String(current);
+    $('splitError').textContent = '';
+    $('splitDialog').showModal();
+    $('splitRanges').select();
+  }
+
+  async function runSplit() {
+    const mode = $('splitDialog').querySelector('input[name=splitMode]:checked').value;
+    const base = baseName();
+    try {
+      if (mode === 'extract') {
+        const idx = parseRanges($('splitRanges').value, pages.length);
+        $('splitDialog').close();
+        status('Creating PDF…', 30000);
+        const label = $('splitRanges').value.replace(/\s+/g, '').replace(/[^\d,-]/g, '').replace(/,/g, '_').slice(0, 40);
+        const bytes = await protect(await buildPdf({ list: idx.map((i) => pages[i]) }));
+        const name = `${base}-pages-${label}.pdf`;
+        downloadBlob(new Blob([bytes], { type: 'application/pdf' }), name);
+        status(`Downloaded ${name} (${idx.length} page${idx.length === 1 ? '' : 's'})`);
+      } else {
+        const every = Math.floor(+$('splitEvery').value);
+        if (!(every >= 1)) throw new Error('Enter how many pages each file should have (1 or more).');
+        $('splitDialog').close();
+        const groups = [];
+        for (let i = 0; i < pages.length; i += every) groups.push(pages.slice(i, i + every));
+        const digits = String(pages.length).length;
+        const files = {};
+        for (let g = 0; g < groups.length; g++) {
+          status(`Creating file ${g + 1} of ${groups.length}…`, 30000);
+          const first = g * every + 1, last = first + groups[g].length - 1;
+          const pad = (n) => String(n).padStart(digits, '0');
+          const name = first === last ? `${base}-page-${pad(first)}.pdf` : `${base}-pages-${pad(first)}-${pad(last)}.pdf`;
+          files[name] = await protect(await buildPdf({ list: groups[g] }));
+        }
+        const names = Object.keys(files);
+        if (names.length === 1) {
+          downloadBlob(new Blob([files[names[0]]], { type: 'application/pdf' }), names[0]);
+          status('Downloaded ' + names[0]);
+        } else {
+          downloadBlob(PdfExport.zip(files), `${base}-split.zip`);
+          status(`Downloaded ${names.length} PDFs in ${base}-split.zip`);
+        }
+      }
+    } catch (err) {
+      if ($('splitDialog').open) { $('splitError').textContent = err.message; return; }
+      console.error(err);
+      status('Could not split: ' + (err.message || err), 6000);
+    }
+  }
+
+  // ---------- Password for downloads ----------
+  function updatePasswordButton() {
+    const btn = $('passwordBtn');
+    btn.classList.toggle('locked', !!savePassword);
+    btn.textContent = savePassword ? '🔒 Password on' : 'Password';
+    btn.title = savePassword ? 'Downloads are password protected. Click to change or remove the password.' : 'Protect the downloaded PDF with a password';
+  }
+
+  function openPasswordDialog() {
+    if (!pages.length) return;
+    $('pwInput').value = savePassword;
+    $('pwConfirm').value = savePassword;
+    $('pwError').textContent = '';
+    $('pwShow').checked = false;
+    $('pwInput').type = $('pwConfirm').type = 'password';
+    $('pwRemove').hidden = !savePassword;
+    $('passwordDialog').showModal();
+    $('pwInput').focus();
+  }
+
+  function setPasswordFromDialog() {
+    const pw = $('pwInput').value;
+    if (pw.length < 4) { $('pwError').textContent = 'Use at least 4 characters.'; return; }
+    if (pw !== $('pwConfirm').value) { $('pwError').textContent = "The two passwords don't match."; return; }
+    savePassword = pw;
+    $('passwordDialog').close();
+    updatePasswordButton();
+    status('Password set: downloaded PDFs will ask for it before opening.', 4000);
+  }
+
   // ---------- Tools, zoom, keyboard ----------
   function setTool(name) {
     closeTextEditor();
+    if (name !== 'stamp') pendingStamp = null;
+    if (hoverChunk) { const id = hoverChunk.pageId; hoverChunk = null; drawOverlay(id); }
     tool = name;
     viewer.dataset.tool = name;
     document.querySelectorAll('#tools .tool[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === name));
+    $('signBtn').classList.toggle('active', name === 'stamp');
     if (name !== 'select' && selection) { const id = selection.pageId; selection = null; drawOverlay(id); }
   }
 
@@ -1108,6 +1576,21 @@
     if (kind) exportAs(kind);
   });
   $('saveBtn').addEventListener('click', save);
+  $('signBtn').addEventListener('click', startSignature);
+  $('splitBtn').addEventListener('click', openSplitDialog);
+  $('splitDialog').querySelector('form').addEventListener('submit', (e) => { e.preventDefault(); runSplit(); });
+  $('splitRanges').addEventListener('focus', () => { $('splitDialog').querySelector('input[value=extract]').checked = true; });
+  $('splitEvery').addEventListener('focus', () => { $('splitDialog').querySelector('input[value=every]').checked = true; });
+  $('passwordBtn').addEventListener('click', openPasswordDialog);
+  $('passwordDialog').querySelector('form').addEventListener('submit', (e) => { e.preventDefault(); setPasswordFromDialog(); });
+  $('pwShow').addEventListener('change', (e) => { $('pwInput').type = $('pwConfirm').type = e.target.checked ? 'text' : 'password'; });
+  $('pwRemove').addEventListener('click', () => {
+    savePassword = '';
+    $('passwordDialog').close();
+    updatePasswordButton();
+    status('Password removed: downloads will open without a password.');
+  });
+  document.querySelectorAll('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
   $('undoBtn').addEventListener('click', undo);
   $('redoBtn').addEventListener('click', redo);
   $('zoomIn').addEventListener('click', () => setZoom(zoom * 1.25));
@@ -1131,8 +1614,10 @@
       nudgeSelection(...rotateVec(...arrows[e.key], rot));
       return;
     }
-    const keys = { v: 'select', t: 'text', p: 'pen', h: 'highlight', r: 'rect', w: 'whiteout' };
+    if (e.key === 'Escape' && tool === 'stamp') { setTool('select'); status('Signature not placed'); return; }
+    const keys = { v: 'select', e: 'edittext', t: 'text', p: 'pen', h: 'highlight', r: 'rect', w: 'whiteout' };
     if (keys[e.key.toLowerCase()]) setTool(keys[e.key.toLowerCase()]);
+    if (e.key.toLowerCase() === 's') startSignature();
     if (e.key === 'Escape' && selection) { const id = selection.pageId; selection = null; drawOverlay(id); }
   });
 
@@ -1195,5 +1680,5 @@
   updateButtons();
 
   // Exposed for automated tests.
-  window.pdfEditor = { buildPdf, exportAs, openFile, getState: () => ({ pages, zoom, tool, selection }) };
+  window.pdfEditor = { buildPdf, exportAs, openFile, getState: () => ({ pages, zoom, tool, selection, savePassword }) };
 })();

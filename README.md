@@ -22,34 +22,43 @@ After changing the app's files, run `python3 build-single-file.py` to rebuild `d
 | Feature | How |
 | --- | --- |
 | Open a PDF | **Open**, or drag a PDF onto the window |
-| Add text | **Text** tool, click where it should go, type. Click away to finish. Double-click existing added text to edit it |
+| Edit existing text | **Edit text** tool (E): hover to see what can be edited, click a word or line, type the new text, click away to finish. The new text matches the original's font style (sans/serif/mono, bold, italic), size and colour, and the background colour is matched to hide the old words. Clear all the text to delete it. Select it and press Delete to undo the change |
+| Add text | **Add text** tool, click where it should go, type. Click away to finish. Double-click existing added text to edit it |
 | Draw freehand | **Draw** tool |
 | Highlight an area | **Highlight** tool, drag over the area |
 | Draw a box | **Box** tool |
 | Hide existing content | **Whiteout** tool covers it with a white box (then add new text on top to "replace" text) |
 | Watermark | Type your text in the box next to **Watermark** (default "DRAFT", remembered for next time) and click the button: a faint diagonal watermark (bold, 150 pt, 10% opacity, 45°) goes across every page. Longer text is shrunk so it still fits the page. Click again to remove it, or change the text and click to replace it |
 | Insert an image | **Image** (PNG or JPG), or drag an image onto the window |
+| Sign | **Sign** (S): draw your signature, type your name in a handwriting style, or upload a photo of it (the white background is removed). Then click where it goes on the page; move and resize it like an image. Signatures are saved in your browser for next time |
 | Move / resize / delete | **Select** tool: drag to move, drag the square handle to resize, Delete key to remove, arrow keys to nudge |
 | Change color, font, size, line width | Toolbar controls. With an item selected, changes apply to it |
 | Rotate, delete, insert blank pages | Hover a page thumbnail on the left |
 | Reorder pages | Drag thumbnails |
 | Merge PDFs | **Merge** adds another PDF's pages to the end |
+| Split or extract pages | **Split**: save chosen pages (for example `1-3, 5, 8-`) as one PDF, or split the document into separate PDFs every N pages (downloaded together as a .zip). Your edits are included |
+| Open locked PDFs | Opening a password-protected PDF asks for its password. The downloaded copy keeps the same password unless you change it |
+| Password-protect | **Password**: set a password and downloads (including split files) are locked with AES-256 encryption. The button shows 🔒 while it's on; click it again to change or remove the password |
 | Undo / redo | Buttons, or Ctrl+Z / Ctrl+Y |
 | Save | **Download** (or Ctrl+S) saves `<name>-edited.pdf` |
 | Export to Word, Excel, CSV | **Export as…** saves the text as `.docx`, `.xlsx` (one sheet per page; numbers become real numbers) or `.csv`. Includes text you added; leaves out watermarks and text hidden under Whiteout. Only available for PDFs that contain text: for scanned PDFs the menu is greyed out |
 
-Keyboard shortcuts for tools: V select, T text, P draw, H highlight, R box, W whiteout.
+Keyboard shortcuts for tools: V select, E edit text, T add text, P draw, H highlight, R box, W whiteout, S sign.
 
 ## Limitations
 
-- Text that is already in the PDF can't be edited directly. Use Whiteout to cover it, then add new text on top.
-- Added text uses the built-in PDF fonts (Helvetica, Times, Courier), which only cover Western European characters. Other characters are saved as `?`.
+- **Edit text** covers the original words and writes new ones on top, which looks like a direct edit. The original words are still inside the file underneath, so **don't use it to remove confidential information** (they can be copied out with some tools). Word/Excel/CSV export does leave them out.
+- Edited and added text use the 12 fonts built into every PDF reader (sans, serif and mono, each in regular, bold, italic and bold italic), matched to the closest original style. A document using an unusual font will look slightly different where edited. These fonts only cover Western European characters; other characters are saved as `?`.
+- Edit text works on PDFs that contain real text. Scanned pages are pictures of text: use Whiteout and Add text there.
 - Export to Word/Excel/CSV copies the **text** only, rebuilding lines and table columns from where the text sits on the page. Images, drawings and formatting are not carried over, and complex layouts (multi-column articles, merged table cells) may need tidying. Scanned PDFs contain pictures of text, not text, so export is turned off for them. A document with at least one page of real text counts as a text PDF.
-- Password-protected PDFs can be viewed, but saving them may fail.
+- A forgotten password can't be recovered: there is no way to open a locked PDF without it.
+- Typed signatures use handwriting fonts installed on your computer (Windows and Mac have several), and saved signatures stay in this browser only.
 
 ## How it works
 
 - [`index.html`](index.html), [`styles.css`](styles.css), [`app.js`](app.js): the whole app, no build step.
 - [`export.js`](export.js): the Word/Excel/CSV export, including a small built-in zip writer (no extra libraries).
+- [`signature.js`](signature.js): the signature dialog (draw, type, upload, saved signatures).
+- [`security.js`](security.js): opening locked PDFs and password-protecting downloads, using [qpdf](https://qpdf.sourceforge.io/) (Apache-2.0) compiled to WebAssembly. It's loaded only when first needed (`vendor/qpdf.js` and `vendor/qpdf-wasm.js`, about 1.8 MB).
 - [pdf.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) draws the pages; [pdf-lib](https://pdf-lib.js.org/) (MIT) writes the edited PDF. Both are bundled in [`vendor/`](vendor) so the app works offline.
 - Edits are stored in PDF coordinates while you work and are written into the original pages when you download, so the original content (text, vector graphics, fonts) is kept as is.
