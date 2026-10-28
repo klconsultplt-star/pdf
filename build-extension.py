@@ -17,8 +17,8 @@ ROOT = pathlib.Path(__file__).resolve().parent
 SRC = ROOT / "web-to-pdf-extension"
 OUT = ROOT / "dist" / "web-to-pdf-extension"
 ZIP = ROOT / "dist" / "web-to-pdf-extension.zip"
-EDITOR_FILES = ["index.html", "app.js", "export.js", "styles.css"]
-VENDOR_FILES = ["pdf.min.js", "pdf.worker.min.js", "pdf-lib.min.js", "LICENSE-pdfjs", "LICENSE-pdf-lib.md"]
+EDITOR_FILES = ["index.html", "app.js", "convert.js", "security.js", "signature.js", "styles.css"]
+VENDOR_FILES = ["pdf.min.js", "pdf.worker.min.js", "pdf-lib.min.js", "qpdf.js", "qpdf-wasm.js", "LICENSE-pdfjs", "LICENSE-pdf-lib.md", "LICENSE-qpdf.txt"]
 
 if OUT.exists():
     shutil.rmtree(OUT)

@@ -216,6 +216,17 @@ dialog p { margin: 0 0 12px; }
 .dialog-buttons button[hidden] { display: none; }
 button.link { all: unset; color: var(--accent); cursor: pointer; text-decoration: underline; }
 
+/* ---------- Convert dialog ---------- */
+.convert-dialog { width: min(560px, calc(100vw - 32px)); }
+.formats { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; margin: 4px 0 14px; }
+.format { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.format:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: #f5f8ff; }
+.format input { margin-top: 3px; }
+.format code { color: var(--muted); font-size: 12px; }
+.format small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.field.inline { width: 160px; height: 32px; margin: 0 0 0 4px; }
+.check[hidden] { display: none; }
+
 /* ---------- Signature dialog ---------- */
 .sign-dialog { width: min(620px, calc(100vw - 32px)); }
 .sign-dialog .tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }

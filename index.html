@@ -25,12 +25,7 @@
       </span>
       <button class="btn" id="passwordBtn" disabled title="Protect the downloaded PDF with a password">Password</button>
       <button class="btn primary" id="saveBtn" disabled title="Download the edited PDF (Ctrl+S)">Download</button>
-      <select id="exportSelect" class="btn" disabled title="Export the text to Word, Excel or CSV">
-        <option value="">Export as…</option>
-        <option value="docx">Word (.docx)</option>
-        <option value="xlsx">Excel (.xlsx)</option>
-        <option value="csv">CSV (.csv)</option>
-      </select>
+      <button class="btn primary" id="convertBtn" disabled title="Convert to Word, Excel or OpenDocument">Convert</button>
     </div>
 
     <div class="group tools" id="tools">
@@ -93,6 +88,10 @@
           Choose a PDF
           <input type="file" id="openInput2" accept="application/pdf,.pdf" hidden>
         </label>
+        <label class="btn big">
+          Convert a PDF to Word, Excel or ODF
+          <input type="file" id="openConvertInput" accept="application/pdf,.pdf" hidden>
+        </label>
         <button class="btn big" id="newBlankBtn">Start with a blank page</button>
       </div>
     </section>
@@ -112,6 +111,35 @@
       <div class="dialog-buttons">
         <button type="button" value="cancel" data-close>Cancel</button>
         <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Convert to Word / Excel / OpenDocument -->
+  <dialog id="convertDialog" class="convert-dialog">
+    <form method="dialog" novalidate>
+      <h2>Convert PDF</h2>
+      <p class="muted">Turn this PDF into a document or spreadsheet you can edit. Your edits are included.</p>
+      <div class="formats" role="radiogroup" aria-label="Format">
+        <label class="format"><input type="radio" name="convertFormat" value="docx" checked>
+          <span><strong>Word</strong> <code>.docx</code><small>Text, formatting, tables and pictures</small></span></label>
+        <label class="format"><input type="radio" name="convertFormat" value="odt">
+          <span><strong>OpenDocument Text</strong> <code>.odt</code><small>The same, for LibreOffice and others</small></span></label>
+        <label class="format"><input type="radio" name="convertFormat" value="xlsx">
+          <span><strong>Excel</strong> <code>.xlsx</code><small>Tables, with real numbers</small></span></label>
+        <label class="format"><input type="radio" name="convertFormat" value="ods">
+          <span><strong>OpenDocument Spreadsheet</strong> <code>.ods</code><small>The same, for LibreOffice and others</small></span></label>
+        <label class="format"><input type="radio" name="convertFormat" value="csv">
+          <span><strong>CSV</strong> <code>.csv</code><small>Plain table data</small></span></label>
+      </div>
+      <label class="choice"><input type="radio" name="convertPages" value="all" checked> All pages</label>
+      <label class="choice"><input type="radio" name="convertPages" value="some"> Pages
+        <input type="text" id="convertRanges" class="field inline" placeholder="e.g. 1-3, 5" aria-label="Pages to convert"></label>
+      <label class="check" id="convertImagesRow"><input type="checkbox" id="convertImages" checked> Include pictures</label>
+      <p class="error" id="convertError" aria-live="polite"></p>
+      <div class="dialog-buttons">
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Convert</button>
       </div>
     </form>
   </dialog>
@@ -152,7 +180,7 @@
 
   <script src="vendor/pdf.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="export.js"></script>
+  <script src="convert.js"></script>
   <script src="security.js"></script>
   <script src="signature.js"></script>
   <script src="app.js"></script>

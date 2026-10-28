@@ -194,7 +194,7 @@
     $('watermarkBtn').disabled = !pages.length;
     $('splitBtn').disabled = !pages.length;
     $('passwordBtn').disabled = !pages.length;
-    updateExportMenu();
+    updateConvertButton();
     $('zoomLabel').textContent = Math.round(zoom * 100) + '%';
   }
 
@@ -1372,36 +1372,56 @@
     }
   }
 
-  // ---------- Export to Word / Excel / CSV ----------
-  // Only offered when the original PDF has real text. Scanned PDFs (pictures
-  // of text) and documents made only of blank pages have none.
+  // ---------- Convert to Word / Excel / OpenDocument ----------
+  // Only possible when the PDF has real text. Scanned PDFs (pictures of
+  // text) and documents made only of blank pages have none.
   const hasText = () => pages.some((p) => p.src != null && sources[p.src].textPages.has(p.srcPage));
+  const NO_TEXT = 'Converting needs a PDF with real text. This one has none (for example, a scanned PDF, where the text is a picture).';
 
-  function updateExportMenu() {
-    const sel = $('exportSelect');
-    const text = hasText();
-    sel.disabled = !text;
-    sel.title = !pages.length ? 'Export the text to Word, Excel or CSV'
-      : text ? 'Export the text to Word, Excel or CSV'
-      : 'Export is not available: this PDF has no text to export (for example, a scanned PDF)';
+  function updateConvertButton() {
+    const btn = $('convertBtn');
+    btn.disabled = !hasText();
+    btn.title = !pages.length || hasText() ? 'Convert to Word, Excel or OpenDocument' : NO_TEXT;
   }
 
-  async function exportAs(kind) {
+  function openConvertDialog() {
     if (!pages.length) return;
-    if (!hasText()) return status('Export is not available: this PDF has no text to export (for example, a scanned PDF).', 6000);
-    return exportText(kind);
+    if (!hasText()) return status(NO_TEXT, 6000);
+    closeTextEditor();
+    $('convertError').textContent = '';
+    $('convertDialog').showModal();
   }
 
-  // Exports the text of the document as edited (added text included), leaving
-  // out watermarks and any text hidden under a whiteout box.
-  async function exportText(kind) {
-    status('Reading text…', 60000);
+  function syncConvertDialog() {
+    const format = $('convertDialog').querySelector('input[name=convertFormat]:checked').value;
+    $('convertImagesRow').hidden = !(format === 'docx' || format === 'odt');
+  }
+
+  async function runConvert() {
+    const dlg = $('convertDialog');
+    const format = dlg.querySelector('input[name=convertFormat]:checked').value;
+    let list = pages;
     try {
-      const bytes = await buildPdf({ skipWatermarks: true });
-      // Text under a whiteout box or an edit patch is hidden, except the
-      // text that was added on top of it.
+      if (dlg.querySelector('input[name=convertPages]:checked').value === 'some') {
+        list = parseRanges($('convertRanges').value, pages.length).map((i) => pages[i]);
+      }
+    } catch (err) {
+      $('convertError').textContent = err.message;
+      return;
+    }
+    dlg.close();
+    await convertTo(format, list, $('convertImages').checked);
+  }
+
+  // Converts the document as edited: added text is included; watermarks and
+  // text hidden under Whiteout or an edit patch are left out.
+  async function convertTo(format, list = pages, images = true) {
+    if (!hasText()) return status(NO_TEXT, 6000);
+    status('Converting…', 120000);
+    try {
+      const bytes = await buildPdf({ skipWatermarks: true, list });
       const hidden = (i, x, y, str) => {
-        const annots = pages[i].annots;
+        const annots = list[i].annots;
         const covered = annots.some((a) => {
           const box = a.type === 'whiteout' ? a : a.cover;
           return box ? inBox(box, x, y, 0) : false;
@@ -1410,23 +1430,21 @@
         const piece = str.trim();
         return !annots.some((t) => isText(t) && !t.watermark && t.text && t.text.includes(piece) && inBox(t, x, y, t.size * 0.5));
       };
-      const result = await PdfExport.extractPages(bytes, hidden);
-      if (!result.some((p) => p.rows.length)) {
-        return status('No text found. This looks like a scanned PDF (images of text), which needs OCR first.', 6000);
-      }
-      const formats = {
-        docx: [PdfExport.toDocx, '.docx'],
-        xlsx: [PdfExport.toXlsx, '.xlsx'],
-        csv: [PdfExport.toCsv, '.csv'],
-      };
-      const [convert, ext] = formats[kind];
-      downloadBlob(convert(result), baseName() + ext);
-      status('Downloaded ' + baseName() + ext);
+      const blob = await PdfConvert.convert(bytes, {
+        format, images, skip: hidden,
+        onProgress: (done, total) => status(done < total ? `Converting page ${done + 1} of ${total}…` : 'Writing the file…', 120000),
+      });
+      const name = baseName() + '.' + format;
+      downloadBlob(blob, name);
+      status('Downloaded ' + name, 4000);
     } catch (err) {
       console.error(err);
-      status('Could not export: ' + (err.message || err), 6000);
+      status(err.code === 'no-text' ? NO_TEXT : 'Could not convert: ' + (err.message || err), 6000);
     }
   }
+
+  // Kept for scripts and tests: convert all pages straight away.
+  const exportAs = (format) => convertTo(format);
 
   // ---------- Split / extract pages ----------
   // "1-3, 5, 8-" -> [0, 1, 2, 4, 7, …]; throws a readable message if invalid.
@@ -1490,7 +1508,7 @@
           downloadBlob(new Blob([files[names[0]]], { type: 'application/pdf' }), names[0]);
           status('Downloaded ' + names[0]);
         } else {
-          downloadBlob(PdfExport.zip(files), `${base}-split.zip`);
+          downloadBlob(PdfConvert.zip(files), `${base}-split.zip`);
           status(`Downloaded ${names.length} PDFs in ${base}-split.zip`);
         }
       }
@@ -1570,10 +1588,16 @@
     try { localStorage.setItem(WM_KEY, watermarkInput.value.trim()); } catch {}
   });
   watermarkInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); toggleWatermark(); } });
-  $('exportSelect').addEventListener('change', (e) => {
-    const kind = e.target.value;
+  $('convertBtn').addEventListener('click', openConvertDialog);
+  $('convertDialog').querySelector('form').addEventListener('submit', (e) => { e.preventDefault(); runConvert(); });
+  $('convertDialog').querySelectorAll('input[name=convertFormat]').forEach((r) => r.addEventListener('change', syncConvertDialog));
+  $('convertRanges').addEventListener('focus', () => { $('convertDialog').querySelector('input[name=convertPages][value=some]').checked = true; });
+  $('openConvertInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
     e.target.value = '';
-    if (kind) exportAs(kind);
+    await openFile(file);
+    if (pages.length && hasText()) openConvertDialog();
+    else if (pages.length) status(NO_TEXT, 6000);
   });
   $('saveBtn').addEventListener('click', save);
   $('signBtn').addEventListener('click', startSignature);

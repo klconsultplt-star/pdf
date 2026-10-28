@@ -1,6 +1,8 @@
 # PDF Editor
 
-A PDF editor that runs entirely in your web browser. Files never leave your computer: there is no server and no upload.
+A PDF editor and converter that runs entirely in your web browser. Files never leave your computer: there is no server and no upload.
+
+**Convert PDF to Word, Excel and OpenDocument:** `.docx`, `.odt`, `.xlsx`, `.ods` and `.csv`, keeping fonts, bold/italic, sizes, colours, headings, paragraphs, lists, tables and pictures. See [Converting](#converting) below.
 
 Also in this repository, to save any web page as a PDF exactly as it looks on screen (and open it in this editor):
 
@@ -41,7 +43,19 @@ After changing the app's files, run `python3 build-single-file.py` to rebuild `d
 | Password-protect | **Password**: set a password and downloads (including split files) are locked with AES-256 encryption. The button shows 🔒 while it's on; click it again to change or remove the password |
 | Undo / redo | Buttons, or Ctrl+Z / Ctrl+Y |
 | Save | **Download** (or Ctrl+S) saves `<name>-edited.pdf` |
-| Export to Word, Excel, CSV | **Export as…** saves the text as `.docx`, `.xlsx` (one sheet per page; numbers become real numbers) or `.csv`. Includes text you added; leaves out watermarks and text hidden under Whiteout. Only available for PDFs that contain text: for scanned PDFs the menu is greyed out |
+| Convert | **Convert** (or **Convert a PDF to Word, Excel or ODF** on the start screen): choose Word, OpenDocument Text, Excel, OpenDocument Spreadsheet or CSV, and all pages or some. See [Converting](#converting) |
+
+## Converting
+
+| Format | Best for | What you get |
+| --- | --- | --- |
+| **Word** `.docx` | Editing the document | Paragraphs that re-flow, with the original fonts, bold/italic, sizes and colours; headings (they show in Word's navigation pane); centred/right/justified alignment and indents; bullet and numbered lists; tables (with borders and cell shading when the PDF has them); pictures; page size, margins and page breaks |
+| **OpenDocument Text** `.odt` | Editing in LibreOffice, OpenOffice, Google Docs or Word | The same as Word, plus each page's background colour |
+| **Excel** `.xlsx` | Working with numbers | One sheet per page. Tables keep their columns; amounts like `$1,250.00`, `12.5%` or `1,200` become real numbers with matching number formats, so you can calculate with them. Bold, colours and cell shading are kept. Other text goes in column A |
+| **OpenDocument Spreadsheet** `.ods` | Numbers in LibreOffice and others | The same as Excel |
+| **CSV** `.csv` | Importing data elsewhere | The table data as plain text |
+
+Your edits are included: text you added or edited is converted; watermarks and text hidden under Whiteout or replaced with **Edit text** are left out.
 
 Keyboard shortcuts for tools: V select, E edit text, T add text, P draw, H highlight, R box, W whiteout, S sign.
 
@@ -50,14 +64,17 @@ Keyboard shortcuts for tools: V select, E edit text, T add text, P draw, H highl
 - **Edit text** covers the original words and writes new ones on top, which looks like a direct edit. The original words are still inside the file underneath, so **don't use it to remove confidential information** (they can be copied out with some tools). Word/Excel/CSV export does leave them out.
 - Edited and added text use the 12 fonts built into every PDF reader (sans, serif and mono, each in regular, bold, italic and bold italic), matched to the closest original style. A document using an unusual font will look slightly different where edited. These fonts only cover Western European characters; other characters are saved as `?`.
 - Edit text works on PDFs that contain real text. Scanned pages are pictures of text: use Whiteout and Add text there.
-- Export to Word/Excel/CSV copies the **text** only, rebuilding lines and table columns from where the text sits on the page. Images, drawings and formatting are not carried over, and complex layouts (multi-column articles, merged table cells) may need tidying. Scanned PDFs contain pictures of text, not text, so export is turned off for them. A document with at least one page of real text counts as a text PDF.
+- **Converting rebuilds the document** from where text and pictures sit on each page (a PDF doesn't store paragraphs or tables). Ordinary documents, reports, letters, invoices and tables convert well. Expect some tidying with: multi-column layouts (newspaper style), text in boxes beside each other, merged table cells, and charts or shapes drawn as lines (only pictures are carried over, not drawn shapes). Text running sideways is skipped.
+- Fonts are named as in the PDF; if a font isn't installed on your computer, Word or LibreOffice shows a similar one, so lines may wrap differently.
+- Word has one page colour per document: a PDF whose pages have *different* background colours gets shaded paragraphs instead (`.odt` keeps each page's colour).
+- Scanned PDFs contain pictures of text, not text, so they can't be converted (that needs text recognition, OCR). The Convert button is greyed out for them. A document with at least one page of real text counts as a text PDF.
 - A forgotten password can't be recovered: there is no way to open a locked PDF without it.
 - Typed signatures use handwriting fonts installed on your computer (Windows and Mac have several), and saved signatures stay in this browser only.
 
 ## How it works
 
 - [`index.html`](index.html), [`styles.css`](styles.css), [`app.js`](app.js): the whole app, no build step.
-- [`export.js`](export.js): the Word/Excel/CSV export, including a small built-in zip writer (no extra libraries).
+- [`convert.js`](convert.js): the converter. It reads text, fonts, colours and pictures with pdf.js, rebuilds lines, paragraphs, lists, headings and tables, and writes `.docx`, `.odt`, `.xlsx`, `.ods` and `.csv` directly (they're zip files of XML; a small built-in zip writer makes them, no extra libraries).
 - [`signature.js`](signature.js): the signature dialog (draw, type, upload, saved signatures).
 - [`security.js`](security.js): opening locked PDFs and password-protecting downloads, using [qpdf](https://qpdf.sourceforge.io/) (Apache-2.0) compiled to WebAssembly. It's loaded only when first needed (`vendor/qpdf.js` and `vendor/qpdf-wasm.js`, about 1.8 MB).
 - [pdf.js](https://mozilla.github.io/pdf.js/) (Apache-2.0) draws the pages; [pdf-lib](https://pdf-lib.js.org/) (MIT) writes the edited PDF. Both are bundled in [`vendor/`](vendor) so the app works offline.
