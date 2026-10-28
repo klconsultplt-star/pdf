@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Web to PDF</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="" width="20" height="20">
+    <h1>Web to PDF</h1>
+  </header>
+  <p class="page" id="page"></p>
+
+  <label class="field">Screen width
+    <select id="device">
+      <option value="current">As I see it now</option>
+      <option value="desktop">Desktop (1440 px)</option>
+      <option value="laptop">Laptop (1280 px)</option>
+      <option value="tablet">Tablet (768 px)</option>
+      <option value="phone">Phone (390 px)</option>
+    </select>
+  </label>
+
+  <label class="field">Wait before capturing
+    <select id="delay">
+      <option value="0">No extra wait</option>
+      <option value="2000">2 seconds</option>
+      <option value="5000">5 seconds</option>
+      <option value="10000">10 seconds</option>
+    </select>
+  </label>
+
+  <fieldset>
+    <legend>PDF type</legend>
+    <label class="radio"><input type="radio" name="mode" value="vector" checked>
+      <span>Exact layout, selectable text <small>(recommended)</small></span></label>
+    <label class="radio"><input type="radio" name="mode" value="image">
+      <span>Picture of the page <small>(pixel-perfect, text not selectable)</small></span></label>
+  </fieldset>
+
+  <div class="buttons">
+    <button id="save" class="primary">Save as PDF</button>
+    <button id="edit">Save &amp; open in PDF Editor</button>
+  </div>
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+  <p class="foot"><a href="editor/index.html" target="_blank">Open PDF Editor</a> · Shortcut: Alt+Shift+P</p>
+  <script src="popup.js"></script>
+</body>
+</html>

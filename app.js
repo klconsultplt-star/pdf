@@ -1195,5 +1195,5 @@
   updateButtons();
 
   // Exposed for automated tests.
-  window.pdfEditor = { buildPdf, exportAs, getState: () => ({ pages, zoom, tool, selection }) };
+  window.pdfEditor = { buildPdf, exportAs, openFile, getState: () => ({ pages, zoom, tool, selection }) };
 })();

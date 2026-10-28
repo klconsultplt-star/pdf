@@ -2,7 +2,10 @@
 
 A PDF editor that runs entirely in your web browser. Files never leave your computer: there is no server and no upload.
 
-Also in this repository: **[Web to PDF](web-to-pdf/README.md)**, a separate tool that saves any web page as a PDF exactly as it looks on screen, and can open the result in this editor.
+Also in this repository, to save any web page as a PDF exactly as it looks on screen (and open it in this editor):
+
+- **[Web to PDF browser extension](web-to-pdf-extension/README.md)** for Chrome and Edge: one click on the page you're viewing, works on logged-in pages, nothing to set up besides loading the extension. Download [`dist/web-to-pdf-extension.zip`](dist/web-to-pdf-extension.zip).
+- **[Web to PDF server app](web-to-pdf/README.md)**: the same capture as a small web app (Node.js), for capturing pages by address or sharing with a team.
 
 ## How to run it
 
